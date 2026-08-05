@@ -9,6 +9,7 @@ const LINKS = [
   { href: "/social", label: "Social" },
   { href: "/customers", label: "Customers & LTV" },
   { href: "/churn", label: "Churn & cohorts" },
+  { href: "/personas", label: "Personas" },
   { href: "/international", label: "International margin" },
   { href: "/costs", label: "Costs", adminOnly: true },
   { href: "/shipping", label: "Shipping", adminOnly: true },

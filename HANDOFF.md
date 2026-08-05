@@ -1,10 +1,13 @@
 # Esses Analytics — Session Handoff
 
-**Last updated:** 2026-08-04 (session 5)
+**Last updated:** 2026-08-04 (session 6)
 **Project root:** `C:\Users\samwi\esses-analytics`
-**Status:** Phases 1–8b built, plus Marketing/reconciliation, Churn & cohorts, and
-Social. 168 tests pass, typecheck + build clean, all 12 routes render against live
-data. **Baseline git commit now exists (§4.9).**
+**Status:** Phases 1–8b built, plus Marketing/reconciliation, Churn & cohorts, Social
+and Personas. 176 tests pass, typecheck + build clean, all 13 routes render against
+live data. Git baseline exists (§4.9).
+
+⚠️ **Read §5.2 before touching Meta.** Access is blocked at the APP level — a new
+token will not fix it.
 
 ---
 
@@ -90,9 +93,9 @@ so a new route needs no allowlist entry.
 - **Attribution:** ~3,600 touchpoints, 2,119 of 7,995 orders covered (40.7%)
 
 ### Pages (all behind auth)
-`/` Overview · `/profit` · `/marketing` · **`/social`** (new) · `/customers`
-(LTV/cohorts) · `/churn` · `/international` · `/costs` · `/shipping` · `/login` ·
-`/api/health`
+`/` Overview · `/profit` · `/marketing` · `/social` · `/customers` (LTV/cohorts) ·
+`/churn` · **`/personas`** (new) · `/international` · `/costs` · `/shipping` ·
+`/login` · `/api/health`
 
 ### Architecture notes worth knowing
 - **`order_profit` is the materialised single source of per-order costed margin**
@@ -329,6 +332,53 @@ placeholders only, and a regex sweep for `shpat_` / `sk_live_` / `EAA…` / `xox
 that's wrong**, and consider `git config --global user.name/email` so future commits
 don't need it.
 
+### 4.10 ✅ Built — behavioural personas (`src/metrics/personas.ts`) + `/personas`
+
+Driven by Sam's targeting doc, whose own research concluded that Meta age/gender
+targeting costs 2–3× per placement and acts as an exclusion filter, and that
+hyper-specific **creative** is what performs because Advantage+ reads the copy and
+targets on signals Meta won't let you select. So personas here are **behavioural**:
+we hold no age/gender/income/interest data, and behaviour is both the better creative
+brief and the only thing that can seed a Custom Audience → Lookalike.
+
+13 segments, each defined by an observable action with the definition shown on the
+page so any row is auditable: collectors, annual committers, quarterly triallers,
+full-price, discount-dependent, merch buyers, gift givers, event/community,
+single-issue tryers, top-decile, international, US core, lapsed subscribers.
+`getPersonaProfiles()`, `getSegmentOverlap()`, `getGeoConcentration()`.
+`classifyProductTitle()` is pure + tested (8 new tests) and shares its patterns with
+the SQL via exported constants, same discipline as `OPS_DISCOUNT_SQL_REGEX`.
+Reuses `SUBS_CTE` exported from churn.ts rather than reimplementing cadence logic.
+
+**Headline findings:**
+- **Full-price buyers are the best Lookalike seed**: 1,671 customers (73.6% of
+  paying), LTV **$71.04**, and the only high-quality segment over Meta's 1,000
+  contactable floor. Top-decile is the ideal customer (LTV **$177.82**, 9.4% churn)
+  but only 229 contactable — too small to seed a Lookalike.
+- **Discount-dependent customers churn 3.6× worse**: 73.1% by first renewal vs 20.5%
+  for full-price. ⚠️ n=26 mature so it's a lead, but full-price's 20.5% rests on
+  n=655 and is solid. **Exclude them from Lookalike seeds** — that seed would find
+  more of the wrong people.
+- ⚠️ **This refines, not contradicts, §5.6.** A promo at acquisition is fine (some
+  codes retain *better* than no-code). Customers who *only ever* buy on a discount
+  are the problem. Different definitions, both true.
+- **390 single-issue tryers** (17.2%) bought once at full price and never subscribed —
+  98.5% overlap with full-price, 380 contactable. Cheapest identified upside.
+- **The UK buys bigger but is worth less**: AOV $89.92 vs US $51.33, yet LTV $32.07 vs
+  US $67.96. One large order, no repeat — a retention problem, not an acquisition one.
+  CA ($97.97 LTV) and AU ($91.22) look stronger than GB but on 18 customers each.
+
+**Known limitation:** the event/community segment resolves to only 2 paying customers
+because event products (Austin guide 147u, Miami tee 49u, event patches) went out
+almost entirely as **$0 comps**, and segments are built over paid orders. The cohort is
+real but invisible to this method — needs the comp orders included deliberately, which
+would change the LTV maths, so it was left alone rather than fudged.
+
+**Privacy note surfaced in the UI, not just here:** a Custom Audience means sending
+customer emails to a third party for advertising. The app deliberately does **not**
+export contact lists — the counts are sizing only. Esses has 148 UK customers, so
+lawful basis and privacy-policy disclosure want checking before a first upload.
+
 ### 4.5 Hardened Shopify network retry
 
 A backfill died on a bare undici `fetch failed` after only ~5s of retry patience
@@ -373,16 +423,76 @@ deliveries it funds, or report margin per subscription cohort rather than per or
 Until then two pages disagree by design, which is confusing for a business user —
 worth resolving as a product decision, not silently.
 
-### 5.2 Meta ad token is dead → conversion counts stay stale
+### 5.2 🔴 Meta access is blocked at the APP level — a new token will NOT fix it
 
-`run.cmd check:ads` → **"API access blocked."** So the ~3× inflated
-`platform_conversions` / `platform_conversion_value_amount` rows from §4.3 cannot be
-corrected. Spend, impressions and clicks are unaffected (they never went through the
-buggy path), so **MER, aMER, CAC and CM3 are all still trustworthy**.
+Diagnosed properly in session 6. **Do not spend time generating a fresh token until
+the app itself is unblocked** — it will fail identically.
 
-**Fix:** new long-lived `META_ACCESS_TOKEN` in `.env`, then
-`run.cmd backfill --since=2025-10-01 --source=ads`, then `run.cmd metrics`. The
-`claimExceedsAllOrders` guard will clear itself when the data is sane.
+Evidence (differential test against the same endpoint):
+
+| token | HTTP | code | message |
+|---|---|---|---|
+| **ours** | 400 | **200** | `API access blocked.` |
+| obvious garbage | 400 | 190 | `Invalid OAuth access token - Cannot parse` |
+| well-formed fake | 400 | 190 | `Malformed access token` |
+| ours, truncated | 400 | 190 | `The access token could not be decrypted` |
+
+Meta **recognises and decrypts our token fine** — a bad token returns code 190, ours
+returns code **200**, which is the permissions/app family. Decisively, `/debug_token`
+also fails, and that endpoint normally answers even for *expired* tokens. Every
+endpoint fails identically (`/me`, `/debug_token`, `/me/permissions`, the ad account,
+`/me/accounts`), so it isn't scope-specific either.
+
+**Conclusion: the app or its Business account is restricted, not the credential.**
+Typical causes, in likelihood order: an overdue **Data Use Checkup**, lapsed
+**Business Verification**, the app flagged/disabled by a policy review, or the app in
+Development mode with the token's user no longer an admin/tester.
+
+**Fix path (all in Meta's UI, none of it in code):**
+1. `developers.facebook.com/apps` → open the app → read the alert banner at the top.
+2. Check **App Review → Permissions and Features** for anything reverted to Standard
+   Access, and **Settings → Advanced** for a Data Use Checkup prompt.
+3. Check `business.facebook.com` → **Business Settings → Security Centre** for
+   Business Verification status.
+4. Resolve whatever is flagged, then generate the token and paste it into `.env`.
+
+Then: `run.cmd check:ads`, `run.cmd backfill --since=2025-10-01 --source=ads`,
+`run.cmd metrics`. The `claimExceedsAllOrders` guard clears itself once the data is
+sane.
+
+Meanwhile spend, impressions and clicks are unaffected (they predate the §4.3 bug and
+the block), so **MER, aMER, CAC and CM3 remain trustworthy**.
+
+### 5.2a Scopes needed once the app is unblocked
+
+Currently granted: `read_all_orders, read_customers, read_fulfillments, read_orders,
+read_products` on Shopify; on Meta the ads read worked, so `ads_read` is present.
+
+For the **engagement half of `/social`** (§4.8) add, on a Meta token tied to a
+Business/Creator Instagram account linked to a Facebook Page:
+
+| Permission | What it unlocks |
+|---|---|
+| `instagram_basic` | account identity, media list, media type/format |
+| `instagram_manage_insights` | impressions, reach, profile visits, follower count, per-post and per-story insights |
+| `pages_show_list` | discovering the Page the IG account is linked to |
+| `pages_read_engagement` | Page-level engagement needed alongside IG insights |
+| `read_insights` | Page/account insight time series |
+| `ads_read` | (already working) campaign spend/delivery |
+
+⚠️ `instagram_manage_insights` needs **App Review** for Advanced Access before it
+works on an account you don't own — budget time for that, it isn't instant. Story
+insights expire after 24h, so stories must be polled daily or they're lost forever;
+that's a scheduling requirement, not a code one.
+
+### 5.2b Not yet built: the Instagram connector
+
+Deliberately **not** written this session. The handoff already records the EasyShip
+lesson — "API path written from docs only, needs a token and `healthCheck()` before
+trusting field names" — and writing a second unverifiable connector against a blocked
+API would repeat it. The moment the app is unblocked, build it token-first: probe
+`/me/accounts` → IG business account id → `/{ig-id}/insights` and confirm the metric
+names before mapping anything.
 
 ### 5.3 The COGS placeholder dominates everything — **still needs Sam**
 
@@ -648,16 +758,16 @@ that token unblocks two things at once.
 Re-run these first to confirm nothing drifted:
 
 ```bash
-C:\Users\samwi\esses-analytics\run.cmd test        # expect: 14 files, 168 tests pass
+C:\Users\samwi\esses-analytics\run.cmd test        # expect: 15 files, 176 tests pass
 C:\Users\samwi\esses-analytics\run.cmd exec tsc --noEmit   # expect: silent
-C:\Users\samwi\esses-analytics\run.cmd build      # expect: 12 routes, clean
+C:\Users\samwi\esses-analytics\run.cmd build      # expect: 13 routes, clean
 C:\Users\samwi\esses-analytics\run.cmd metrics    # expect: 304 days, MER 5.15
 ```
 
-Verified passing at handoff time (2026-08-04, session 5): **168/168 tests**, typecheck
-silent, build clean (12 routes), all pages rendering 200 against live data —
+Verified passing at handoff time (2026-08-04, session 6): **176/176 tests**, typecheck
+silent, build clean (13 routes), all pages rendering 200 against live data —
 `/marketing` under every model/basis combination, `/churn` under every one of the six
-cohort dimensions, and `/social`.
+cohort dimensions, plus `/social` and `/personas`.
 
 Headline numbers as of handoff — quote these with their caveats, not bare:
 - Revenue (net, Shopify paid ex-VAT + Stripe): **$152,028**

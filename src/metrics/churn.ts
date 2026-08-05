@@ -305,8 +305,15 @@ export interface ChurnCohort {
   churnedWithoutDate: number;
 }
 
-/** Shared subscription view across both systems, with churn + cadence resolved. */
-const SUBS_CTE = sql`
+/**
+ * Shared subscription view across both systems, with churn + cadence resolved.
+ *
+ * Exported so other modules (e.g. `personas.ts`) reuse the churn/maturity/cadence
+ * logic rather than reimplementing it. The cadence rule in particular is subtle
+ * enough that a second copy would drift — see the header note on billing vs
+ * delivery cadence. Provides CTEs named `subs` and `enriched`.
+ */
+export const SUBS_CTE = sql`
   subs AS (
     SELECT 'skio'::text AS source, sm.id, sm.customer_id, sm.started_at,
            sm.cancelled_at AS churned_at, sm.status::text AS status,
