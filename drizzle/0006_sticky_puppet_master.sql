@@ -1,0 +1,1 @@
+ALTER TABLE "shipping_rate_rules" ADD COLUMN "exclude_country_code" text;
