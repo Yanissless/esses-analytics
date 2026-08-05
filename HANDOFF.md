@@ -1,10 +1,10 @@
 # Esses Analytics — Session Handoff
 
-**Last updated:** 2026-08-04 (session 4)
+**Last updated:** 2026-08-04 (session 5)
 **Project root:** `C:\Users\samwi\esses-analytics`
-**Status:** Phases 1–8b built, plus the Marketing/reconciliation page and the
-Churn & cohorts page. 161 tests pass, typecheck + build clean, all 11 routes render
-against live data.
+**Status:** Phases 1–8b built, plus Marketing/reconciliation, Churn & cohorts, and
+Social. 168 tests pass, typecheck + build clean, all 12 routes render against live
+data. **Baseline git commit now exists (§4.9).**
 
 ---
 
@@ -90,8 +90,8 @@ so a new route needs no allowlist entry.
 - **Attribution:** ~3,600 touchpoints, 2,119 of 7,995 orders covered (40.7%)
 
 ### Pages (all behind auth)
-`/` Overview · `/profit` · `/marketing` · `/customers` (LTV/cohorts) ·
-**`/churn`** (new) · `/international` · `/costs` · `/shipping` · `/login` ·
+`/` Overview · `/profit` · `/marketing` · **`/social`** (new) · `/customers`
+(LTV/cohorts) · `/churn` · `/international` · `/costs` · `/shipping` · `/login` ·
 `/api/health`
 
 ### Architecture notes worth knowing
@@ -270,6 +270,64 @@ have been ignored. Added `ORGANIC_MEDIUMS` and organic `utm_source` matching —
 strictly AFTER the paid checks so a tagged paid click can never be demoted to organic
 (pinned by a test). This is forward-looking only: UTMs are null on all existing
 touchpoints, so no re-ingest was needed.
+
+### 4.8 ✅ Built — Social module (`src/metrics/social.ts`) + `/social` page
+
+Deliberately **not** a Later/Sprout clone. Platform-side engagement — followers,
+reach, engagement rate, per-post metrics — lives only in the Instagram Graph / TikTok
+APIs, needs its own connector plus a working Meta token, and is in no table here.
+`SOCIAL_PLATFORM_METRICS_GAP` names those four gaps and the page states them outright
+rather than rendering empty tiles.
+
+What it does instead is the half those tools can't: follow a social visit through to
+revenue, retention and margin, with paid and organic on the same commerce outcome.
+
+- `getSocialSummary()` — social-touched revenue and its share, paid vs organic-only
+  orders, spend, coverage
+- `getSocialPlatformPerformance()` — per platform; **works today with no UTM tagging**
+  because platform comes from the referrer host with Shopify's `source` as fallback
+- `getPaidCampaignPerformance()` — Meta campaign spend/CTR/CPC/CPM joined to the orders
+  its tagged visits reached
+- `getSocialLandingPages()` — best available proxy for "which post worked" pre-`utm_content`
+- `getTaggedCampaigns()` — campaign tagging health; the readiness check for the rollout
+- `normalizeSocialPlatform()` pure + unit-tested (7 new tests)
+
+**The ads↔commerce join is the interesting bit.** Meta writes the campaign ID into
+`utm_campaign` while hand-tagged links carry the name, so the join matches on
+**either** — matching one silently loses most of the data.
+
+Findings worth acting on:
+- Instagram dominates: 1,366 touchpoints, 1,103 orders, **$14,985** revenue, AOV $45.27.
+  Facebook is 90 touchpoints. TikTok/Threads are ~3 combined.
+- **Social-touched revenue is $19,021 — 13.1% of all revenue**, and 1,130 of 1,335
+  social orders had **no paid touch at all**. Organic carries this channel.
+- ⚠️ But organic-social is the **worst retention cohort** (51.1% churn by first renewal,
+  $27 LTV — §5.6). Volume and quality point opposite ways; that tension is the most
+  useful thing on the page.
+- **$8,462 of Meta spend has no identifiable visit** ("Substack Newsletter Campaign"
+  $1,689, "Austin 2025 eventbrite" $1,492, "Editorial Ads" $1,322, "TAG Ad" $883…).
+  Several are clearly awareness buys (CTR 0.1%, CPM $0.64) — a measurement gap, not
+  proof of zero performance.
+- Only two campaigns clear ROAS 1.0 on matched data: "Issue 3 - TOF - ABO – Copy"
+  (1.28) and "BFCM Statics" (1.18). Recent Issue 05/06 campaigns read 0.09–0.11 —
+  **but they drove free/discounted signups**: Issue 05 attributed 76 orders at ~$9.53
+  each. Read `attributedOrders` against `attributedPaidOrders` before concluding a
+  campaign failed.
+
+### 4.9 ✅ Baseline git commit made
+
+`9c05504` — 159 files, 47,790 insertions, on `master`, **nothing pushed** (no remote).
+Committed to `master` rather than a branch because it's the initial baseline of a repo
+with zero prior history; branching would have left the default branch empty.
+
+Pre-commit checks done: `.env` confirmed gitignored, `.env.example` verified to hold
+placeholders only, and a regex sweep for `shpat_` / `sk_live_` / `EAA…` / `xoxb-` /
+`sk-ant-` patterns across the whole tree returned nothing.
+
+⚠️ No global git identity was configured on this machine, so the commit was authored as
+`Sam Williams <sam@essesmag.com>` via inline `-c` flags. **Correct the display name if
+that's wrong**, and consider `git config --global user.name/email` so future commits
+don't need it.
 
 ### 4.5 Hardened Shopify network retry
 
@@ -484,6 +542,24 @@ Consequences:
 - ❌ **Comp misclassification.** "$0 and not subscription-linked = comp" labelled ~2,400
   units of **prepaid subscription deliveries** as giveaways. Fixed with
   `customer_has_subscription`.
+- ❌ **Dividing by all orders to get AOV — reintroduced in session 5 and caught again.**
+  `getSocialPlatformPerformance` first reported Instagram AOV as **$13.59** because 65%
+  of orders are $0. Correct figure over paid orders: **$45.27**. This trap has now bitten
+  twice; **any new per-order average must divide by `total_amount > 0`.** The same fix
+  applies to campaign rows, where `attributedOrders` vs `attributedPaidOrders` separates
+  "sold 25 magazines" from "gave away 25 subscriptions".
+- ❌ **Believing `fbclid` reaches us.** The old note here claimed fbclid-tagged clicks
+  existed and drove paid detection. They don't: **`click_id` is 0 across all 4,400
+  touchpoints**, because Shopify's `customerJourneySummary.landingPage` **strips the
+  entire query string** — 0 of 4,400 landing URLs contain a `?`. So `parseClickId()` and
+  the landing-page branch of `parseUtms()` can never fire in practice; the ONLY UTM
+  source is Shopify's own parsed `utmParameters` field. This makes the tagging rollout
+  the sole route to paid-click identification, not merely an improvement.
+- ❌ **"UTMs are null everywhere."** Also outdated. **Meta is already auto-tagging**:
+  471 touchpoints carry a `utm_medium` and 387 a `utm_campaign`. But it sends the
+  campaign **ID** (`120231993199500507`), not the name, and sometimes puts the ADSET
+  NAME in `utm_medium` — which is why some genuinely paid campaigns classify as
+  `organic-social`. The `{{campaign.name}}` line in the tagging guide fixes this.
 - ❌ **Cohort LTV read as collapsing** ($88 → $37) — an artifact of observation window.
   **LTV @ 3mo** shows $31.69 → $72.48 → $72.29 → $75.66: improving, not falling.
 - ❌ **One source failing aborted the whole sync.** `scripts/sync.ts` now isolates each
@@ -555,11 +631,15 @@ Consequences:
 (phase 10), advertiser delivery reporting (phase 11), durable hosting + DNS.
 
 **Housekeeping:** the Stripe and Skio keys passed through chat and should be rotated.
-Git is initialised on branch `master` with **no commit ever made** — Sam asked to keep
-that decision his, so the whole build is still untracked. **This is now the biggest
-process risk:** this session changed cost-critical SQL in five files and added a
-migration, with no way to diff or revert. A first commit would make every later change
-reviewable. `.env` is confirmed gitignored; `.env.example` is not.
+Git now has a baseline commit (§4.9) — subsequent work is diffable and revertable, and
+there's still no remote, so nothing has left the machine. Set a global git identity when
+convenient.
+
+**Next connector worth building:** Instagram Graph API for the engagement half of
+`/social` (§4.8) — follower growth, reach, per-post metrics. Needs a Meta token with
+`instagram_basic` + `pages_read_engagement` against a Business/Creator account linked to
+a Facebook Page. Blocked on the same dead `META_ACCESS_TOKEN` as §5.2, so refreshing
+that token unblocks two things at once.
 
 ---
 
@@ -568,16 +648,16 @@ reviewable. `.env` is confirmed gitignored; `.env.example` is not.
 Re-run these first to confirm nothing drifted:
 
 ```bash
-C:\Users\samwi\esses-analytics\run.cmd test        # expect: 13 files, 161 tests pass
+C:\Users\samwi\esses-analytics\run.cmd test        # expect: 14 files, 168 tests pass
 C:\Users\samwi\esses-analytics\run.cmd exec tsc --noEmit   # expect: silent
-C:\Users\samwi\esses-analytics\run.cmd build      # expect: 11 routes, clean
+C:\Users\samwi\esses-analytics\run.cmd build      # expect: 12 routes, clean
 C:\Users\samwi\esses-analytics\run.cmd metrics    # expect: 304 days, MER 5.15
 ```
 
-Verified passing at handoff time (2026-08-04, session 4): **161/161 tests**, typecheck
-silent, build clean (11 routes), all pages rendering 200 against live data —
-`/marketing` under every model/basis combination and `/churn` under every one of the
-six cohort dimensions.
+Verified passing at handoff time (2026-08-04, session 5): **168/168 tests**, typecheck
+silent, build clean (12 routes), all pages rendering 200 against live data —
+`/marketing` under every model/basis combination, `/churn` under every one of the six
+cohort dimensions, and `/social`.
 
 Headline numbers as of handoff — quote these with their caveats, not bare:
 - Revenue (net, Shopify paid ex-VAT + Stripe): **$152,028**

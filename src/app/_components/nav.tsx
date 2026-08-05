@@ -6,6 +6,7 @@ const LINKS = [
   { href: "/", label: "Overview" },
   { href: "/profit", label: "Profit" },
   { href: "/marketing", label: "Marketing" },
+  { href: "/social", label: "Social" },
   { href: "/customers", label: "Customers & LTV" },
   { href: "/churn", label: "Churn & cohorts" },
   { href: "/international", label: "International margin" },
