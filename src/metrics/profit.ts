@@ -14,6 +14,8 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { ratio } from "./formulas";
+import { DEFAULT_MARGIN_BOUNDARY, type MarginBoundary } from "./margin-boundary";
+import { boundaryCostFilter, boundaryCostFilterFor } from "./margin-boundary.server";
 
 async function rows<T>(query: ReturnType<typeof sql>): Promise<T[]> {
   return (await db.execute(query)) as unknown as T[];
@@ -63,16 +65,20 @@ export interface ProfitWaterfall {
 export async function getProfitWaterfall(
   since: string,
   until: string,
+  boundary: MarginBoundary = DEFAULT_MARGIN_BOUNDARY,
 ): Promise<ProfitWaterfall> {
+  const costFilter = boundaryCostFilter(boundary);
   const [r] = await rows<Record<string, unknown>>(sql`
     WITH p AS (${ORDER_PROFIT})
     SELECT
-      COALESCE(sum(net_ex_vat) FILTER (WHERE revenue_class <> 'comp'), 0) AS net_revenue,
-      COALESCE(sum(cogs) FILTER (WHERE revenue_class <> 'comp'), 0) AS cogs,
-      COALESCE(sum(ship_cost) FILTER (WHERE revenue_class <> 'comp'), 0) AS shipping,
-      COALESCE(sum(duties_cost) FILTER (WHERE revenue_class <> 'comp'), 0) AS duties,
-      COALESCE(sum(other_fulfil) FILTER (WHERE revenue_class <> 'comp'), 0) AS other_fulfil,
-      COALESCE(sum(processing) FILTER (WHERE revenue_class <> 'comp'), 0) AS processing,
+      -- Revenue is boundary-independent: comps and prepaid deliveries collected $0,
+      -- so only the cost aggregates below respond to the setting.
+      COALESCE(sum(net_ex_vat), 0) AS net_revenue,
+      COALESCE(sum(cogs) FILTER (WHERE ${costFilter}), 0) AS cogs,
+      COALESCE(sum(ship_cost) FILTER (WHERE ${costFilter}), 0) AS shipping,
+      COALESCE(sum(duties_cost) FILTER (WHERE ${costFilter}), 0) AS duties,
+      COALESCE(sum(other_fulfil) FILTER (WHERE ${costFilter}), 0) AS other_fulfil,
+      COALESCE(sum(processing) FILTER (WHERE ${costFilter}), 0) AS processing,
       COALESCE(sum(cogs + ship_cost + duties_cost + other_fulfil) FILTER (WHERE revenue_class = 'comp'), 0) AS comp_cost
     FROM p
     WHERE processed_on >= ${since} AND processed_on <= ${until}
@@ -154,21 +160,25 @@ export interface ProductProfit {
  * Profitability by product. CM1 only — shipping and processing are order-level, so
  * splitting them across line items of a mixed order would be an arbitrary
  * allocation dressed up as fact.
+ *
+ * Reads `revenue_class` and `origin` from `order_profit` rather than re-deriving
+ * them. It used to re-derive, and its copy of the CASE was missing the
+ * `customer_has_subscription` branch — so ~2,400 units of prepaid subscription
+ * delivery were classified as free comps and then excluded, understating units and
+ * distorting unit cost for every subscription product. See `REVENUE_CLASS_NOTE`.
  */
-export async function getProductProfit(since: string, until: string): Promise<ProductProfit[]> {
+export async function getProductProfit(
+  since: string,
+  until: string,
+  boundary: MarginBoundary = DEFAULT_MARGIN_BOUNDARY,
+): Promise<ProductProfit[]> {
   const data = await rows<Record<string, unknown>>(sql`
     WITH ord AS (
-      SELECT o.id, o.processed_at,
-             COALESCE(o.fulfillment_origin_override, mc.fulfillment_origin, 'US') AS origin,
-             CASE WHEN o.total_amount > 0 THEN 'paid'
-                  WHEN o.subscription_meta_id IS NOT NULL
-                       OR o.order_type = 'subscription_shopify' THEN 'prepaid_delivery'
-                  ELSE 'comp' END AS revenue_class
-        FROM orders o
-        LEFT JOIN market_config mc
-          ON mc.country_code = COALESCE(o.shipping_country, o.billing_country)
-       WHERE o.test = false AND o.cancelled_at IS NULL AND o.counts_as_revenue = true
-         AND o.processed_at::date >= ${since} AND o.processed_at::date <= ${until}
+      SELECT op.order_id AS id, op.processed_on AS processed_at, op.origin,
+             op.revenue_class
+        FROM order_profit op
+       WHERE op.processed_on >= ${since} AND op.processed_on <= ${until}
+         AND ${boundaryCostFilterFor("op", boundary)}
     )
     SELECT COALESCE(NULLIF(li.sku, ''), 'variant:' || COALESCE(li.variant_id::text, '?')) AS sku,
            max(li.title) AS title,
@@ -197,7 +207,6 @@ export async function getProductProfit(since: string, until: string): Promise<Pr
                ) THEN li.quantity ELSE 0 END) AS uncosted_units
       FROM order_line_items li
       JOIN ord ON ord.id = li.order_id
-     WHERE ord.revenue_class <> 'comp'
      GROUP BY 1
      ORDER BY sum((li.price_amount * li.quantity) - li.total_discount_amount) DESC
   `);

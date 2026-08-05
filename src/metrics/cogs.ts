@@ -20,6 +20,8 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "../db/client";
+import { DEFAULT_MARGIN_BOUNDARY, type MarginBoundary } from "./margin-boundary";
+import { boundaryCostFilter } from "./margin-boundary.server";
 
 async function rows<T>(query: ReturnType<typeof sql>): Promise<T[]> {
   return (await db.execute(query)) as unknown as T[];
@@ -145,10 +147,13 @@ const COSTED_ORDERS = sql`
     --                    (revenue landed on the earlier order: a timing offset)
     --  comp            — free copy (contributor/VIP/seeding): real cost, no
     --                    revenue ever. Marketing spend, not a pricing failure.
-    CASE WHEN om.total_amount > 0 THEN 'paid'
-         WHEN om.subscription_meta_id IS NOT NULL OR om.order_type = 'subscription_shopify'
-           THEN 'prepaid_delivery'
-         ELSE 'comp' END AS revenue_class,
+    --
+    -- ⚠️ Read from order_profit, NOT re-derived here. The CASE that used to live at
+    -- this spot was missing the customer_has_subscription branch, so every prepaid
+    -- delivery whose order carried no selling plan was labelled a free comp — which
+    -- inflated the comp programme and dropped those units out of trading margin on
+    -- the International page. See REVENUE_CLASS_NOTE in metrics/margin-boundary.ts.
+    opc.revenue_class,
     om.total_amount                                        AS gross,
     om.total_refunded_amount                               AS refunds,
     om.shipping_amount                                     AS shipping_charged,
@@ -173,6 +178,13 @@ const COSTED_ORDERS = sql`
   LEFT JOIN zone_costs zc ON zc.order_id = om.id
   LEFT JOIN actual_ship asx ON asx.order_id = om.id
   LEFT JOIN rate_est re ON re.order_id = om.id
+  -- Single authority for revenue_class, and an INNER join on purpose: it makes this
+  -- view's population identical to order_profit's, so the International page and the
+  -- Profit page can never disagree about which orders exist. order_profit also
+  -- requires processed_at IS NOT NULL, which this query didn't — a LEFT join left 135
+  -- unprocessed orders defaulting to 'comp' and inflated comp units by 141.
+  -- Rebuilt by "run.cmd metrics".
+  JOIN order_profit opc ON opc.order_id = om.id
 `;
 
 export interface MarginSummary {
@@ -198,19 +210,22 @@ export interface MarginSummary {
   cm2AfterCompsCents: number;
 }
 
-export async function getMarginSummary(): Promise<MarginSummary> {
+export async function getMarginSummary(
+  boundary: MarginBoundary = DEFAULT_MARGIN_BOUNDARY,
+): Promise<MarginSummary> {
+  const costFilter = boundaryCostFilter(boundary);
   const [r] = await rows<Record<string, unknown>>(sql`
     WITH c AS (${COSTED_ORDERS})
     SELECT
-      count(*) FILTER (WHERE revenue_class <> 'comp')                      AS orders,
-      COALESCE(sum(units)   FILTER (WHERE revenue_class <> 'comp'), 0)     AS units,
-      COALESCE(sum(uncosted_units) FILTER (WHERE revenue_class <> 'comp'), 0) AS uncosted_units,
+      count(*) FILTER (WHERE ${costFilter})                                AS orders,
+      COALESCE(sum(units)   FILTER (WHERE ${costFilter}), 0)               AS units,
+      COALESCE(sum(uncosted_units) FILTER (WHERE ${costFilter}), 0)        AS uncosted_units,
       COALESCE(sum(net_ex_vat), 0)                                         AS net_ex_vat,
-      COALESCE(sum(cogs)     FILTER (WHERE revenue_class <> 'comp'), 0)    AS cogs,
+      COALESCE(sum(cogs)     FILTER (WHERE ${costFilter}), 0)              AS cogs,
       COALESCE(sum(shipping_charged), 0)                                   AS ship_charged,
-      COALESCE(sum(ship_cost) FILTER (WHERE revenue_class <> 'comp'), 0)   AS ship_cost,
+      COALESCE(sum(ship_cost) FILTER (WHERE ${costFilter}), 0)             AS ship_cost,
       COALESCE(sum(freight_cost + packaging_cost + pick_pack_cost + processing_cost + return_cost + duties_cost)
-               FILTER (WHERE revenue_class <> 'comp'), 0)                  AS other_var,
+               FILTER (WHERE ${costFilter}), 0)                            AS other_var,
       count(*) FILTER (WHERE revenue_class = 'comp')                       AS comp_orders,
       COALESCE(sum(units) FILTER (WHERE revenue_class = 'comp'), 0)        AS comp_units,
       COALESCE(sum(cogs + ship_cost + duties_cost + freight_cost + packaging_cost + pick_pack_cost)
@@ -269,24 +284,34 @@ export interface MarketMargin {
   compCostCents: number;
 }
 
-/** Per-country actuals — the international margin view. */
-export async function getMarketMargins(): Promise<MarketMargin[]> {
+/**
+ * Per-country actuals — the international margin view.
+ *
+ * `boundary` decides which revenue classes' costs are charged, so the same page can
+ * answer "how profitable is a sale in Germany?" and "what is Germany costing us
+ * all-in?" without two implementations.
+ */
+export async function getMarketMargins(
+  boundary: MarginBoundary = DEFAULT_MARGIN_BOUNDARY,
+): Promise<MarketMargin[]> {
+  const costFilter = boundaryCostFilter(boundary);
   const data = await rows<Record<string, unknown>>(sql`
     WITH c AS (${COSTED_ORDERS})
-    -- Comps are excluded from the margin columns and reported in their own
-    -- column, so a market isn't judged on copies it was never paid for.
+    -- Which classes bear cost follows the configured boundary; comps are ALSO always
+    -- reported in their own column so a market is never silently judged on copies it
+    -- was not paid for.
     SELECT country, market_name, zone, origin,
            max(vat_pct) AS vat_pct,
-           count(*) FILTER (WHERE revenue_class <> 'comp') AS orders,
-           COALESCE(sum(units) FILTER (WHERE revenue_class <> 'comp'),0) AS units,
+           count(*) FILTER (WHERE ${costFilter}) AS orders,
+           COALESCE(sum(units) FILTER (WHERE ${costFilter}),0) AS units,
            COALESCE(sum(gross),0) AS gross,
            COALESCE(sum(net_ex_vat),0) AS net_ex_vat,
-           COALESCE(sum(cogs) FILTER (WHERE revenue_class <> 'comp'),0) AS cogs,
+           COALESCE(sum(cogs) FILTER (WHERE ${costFilter}),0) AS cogs,
            COALESCE(sum(shipping_charged),0) AS ship_charged,
-           COALESCE(sum(ship_cost) FILTER (WHERE revenue_class <> 'comp'),0) AS ship_cost,
+           COALESCE(sum(ship_cost) FILTER (WHERE ${costFilter}),0) AS ship_cost,
            COALESCE(sum(freight_cost + packaging_cost + pick_pack_cost + processing_cost + return_cost + duties_cost)
-                    FILTER (WHERE revenue_class <> 'comp'),0) AS other_var,
-           COALESCE(sum(uncosted_units) FILTER (WHERE revenue_class <> 'comp'),0) AS uncosted_units,
+                    FILTER (WHERE ${costFilter}),0) AS other_var,
+           COALESCE(sum(uncosted_units) FILTER (WHERE ${costFilter}),0) AS uncosted_units,
            COALESCE(sum(units) FILTER (WHERE revenue_class = 'comp'),0) AS comp_units,
            COALESCE(sum(cogs + ship_cost + duties_cost + packaging_cost) FILTER (WHERE revenue_class = 'comp'),0) AS comp_cost
     FROM c

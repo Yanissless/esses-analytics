@@ -1,12 +1,66 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { costAssumptions, productCosts } from "@/db/schema";
+import { costAssumptions, marginSettings, productCosts } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth/current-user";
+import { BOUNDARY_META, isMarginBoundary } from "@/metrics/margin-boundary";
 
 export type CostActionState = { error?: string; ok?: string };
+
+/**
+ * Every page whose numbers depend on cost settings. Kept in one place because a
+ * setting that silently fails to refresh a page is worse than no setting — the user
+ * changes it, sees the old figure, and concludes the app is broken.
+ */
+const MARGIN_DEPENDENT_PATHS = ["/costs", "/international", "/profit", "/personas", "/"];
+
+function revalidateMarginPages(): void {
+  for (const p of MARGIN_DEPENDENT_PATHS) revalidatePath(p);
+}
+
+/**
+ * Change which revenue classes bear cost when margin is computed.
+ *
+ * Safe to change at will: revenue is identical under all three options because comps
+ * and prepaid deliveries collect $0, so this only ever re-filters which costs are
+ * charged. Nothing is recomputed or rebuilt.
+ */
+export async function saveMarginBoundary(
+  _prev: CostActionState,
+  formData: FormData,
+): Promise<CostActionState> {
+  await requireAdmin();
+
+  const boundary = String(formData.get("marginBoundary") ?? "").trim();
+  if (!isMarginBoundary(boundary)) {
+    return { error: "Pick one of the three margin boundaries." };
+  }
+
+  // Applies to the newest settings row, which is what getMarginBoundary() reads.
+  const [current] = await db
+    .select({ effectiveDate: marginSettings.effectiveDate })
+    .from(marginSettings)
+    .orderBy(desc(marginSettings.effectiveDate))
+    .limit(1);
+
+  if (!current) {
+    await db.insert(marginSettings).values({
+      effectiveDate: new Date().toISOString().slice(0, 10),
+      marginBoundary: boundary,
+      note: "Created when the margin boundary was first set.",
+    });
+  } else {
+    await db
+      .update(marginSettings)
+      .set({ marginBoundary: boundary, updatedAt: new Date() })
+      .where(eq(marginSettings.effectiveDate, current.effectiveDate));
+  }
+
+  revalidateMarginPages();
+  return { ok: `Margin boundary set to “${BOUNDARY_META[boundary].label}”.` };
+}
 
 function parseMoneyToCents(raw: string): number | null {
   const cleaned = raw.replace(/[$,\s]/g, "");

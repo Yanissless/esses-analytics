@@ -57,6 +57,13 @@
       "when": 1785854771304,
       "tag": "0007_smart_dorian_gray",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785948197587,
+      "tag": "0008_chilly_wrecker",
+      "breakpoints": true
     }
   ]
 }

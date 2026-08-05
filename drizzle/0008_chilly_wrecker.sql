@@ -1,0 +1,1 @@
+ALTER TABLE "margin_settings" ADD COLUMN "margin_boundary" text DEFAULT 'paid_only' NOT NULL;

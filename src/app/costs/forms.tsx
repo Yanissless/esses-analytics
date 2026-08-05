@@ -3,10 +3,16 @@
 import { useActionState } from "react";
 import {
   importCostsCsv,
+  saveMarginBoundary,
   saveProductCost,
   saveZoneAssumptions,
   type CostActionState,
 } from "./actions";
+import {
+  BOUNDARY_META,
+  MARGIN_BOUNDARIES,
+  type MarginBoundary,
+} from "@/metrics/margin-boundary";
 
 const initial: CostActionState = {};
 
@@ -25,6 +31,78 @@ function Msg({ state }: { state: CostActionState }) {
       {state.ok ? <p className="text-emerald-600 dark:text-emerald-400">{state.ok}</p> : null}
       {state.error ? <p className="text-red-600 dark:text-red-400">{state.error}</p> : null}
     </div>
+  );
+}
+
+/**
+ * The margin-boundary selector.
+ *
+ * Rendered as radios with each option's full trade-off visible rather than a bare
+ * dropdown: the three options produce wildly different CM2 for the same period
+ * (+$85K / −$15K / −$30K here), so someone changing it needs to see *why* before
+ * they do, not after.
+ */
+export function MarginBoundaryForm({ current }: { current: MarginBoundary }) {
+  const [state, action, pending] = useActionState(saveMarginBoundary, initial);
+
+  return (
+    <section className={card}>
+      <header className="mb-3">
+        <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+          Margin boundary
+        </h2>
+        <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+          Which revenue classes bear cost. Changes apply immediately across Profit,
+          International and Personas — revenue is identical under all three, so this only
+          re-filters which costs are charged. Nothing is rebuilt.
+        </p>
+      </header>
+
+      <form action={action} className="space-y-3">
+        {MARGIN_BOUNDARIES.map((b) => {
+          const meta = BOUNDARY_META[b];
+          const active = b === current;
+          return (
+            <label
+              key={b}
+              className={`flex cursor-pointer gap-3 rounded-lg border p-3 transition ${
+                active
+                  ? "border-neutral-900 bg-neutral-50 dark:border-neutral-100 dark:bg-neutral-800/60"
+                  : "border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40"
+              }`}
+            >
+              <input
+                type="radio"
+                name="marginBoundary"
+                value={b}
+                defaultChecked={active}
+                className="mt-1"
+              />
+              <span>
+                <span className="block text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  {meta.label}
+                  {active ? (
+                    <span className="ml-2 rounded bg-neutral-200 px-1.5 py-0.5 text-[11px] font-normal text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200">
+                      active
+                    </span>
+                  ) : null}
+                </span>
+                <span className="mt-0.5 block text-xs text-neutral-600 dark:text-neutral-300">
+                  {meta.short}
+                </span>
+                <span className="mt-1 block text-xs text-neutral-500 dark:text-neutral-400">
+                  {meta.explanation}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+        <button type="submit" className={button} disabled={pending}>
+          {pending ? "Saving…" : "Save boundary"}
+        </button>
+      </form>
+      <Msg state={state} />
+    </section>
   );
 }
 

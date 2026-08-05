@@ -3,6 +3,8 @@ import { marginSettings } from "@/db/schema";
 import { desc } from "drizzle-orm";
 import { requireUser } from "@/lib/auth/current-user";
 import { getMarginSummary, getMarketMargins } from "@/metrics/cogs";
+import { BOUNDARY_META } from "@/metrics/margin-boundary";
+import { getMarginBoundary } from "@/metrics/margin-boundary.server";
 import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 
@@ -12,11 +14,13 @@ const pct = (f: number) => `${(f * 100).toFixed(1)}%`;
 
 export default async function InternationalPage() {
   const user = await requireUser();
+  const boundary = await getMarginBoundary();
   const [summary, markets, settingsRows] = await Promise.all([
-    getMarginSummary(),
-    getMarketMargins(),
+    getMarginSummary(boundary),
+    getMarketMargins(boundary),
     db.select().from(marginSettings).orderBy(desc(marginSettings.effectiveDate)).limit(1),
   ]);
+  const boundaryMeta = BOUNDARY_META[boundary];
   const target = settingsRows[0]?.targetMarginPct ?? 0.2;
 
   const international = markets.filter((m) => m.country && m.country !== "US");
@@ -33,6 +37,20 @@ export default async function InternationalPage() {
             Real orders costed with per-origin COGS, zone shipping, and market VAT. Target
             contribution margin {pct(target)}.
           </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-white p-3 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+          <Badge tone="blue">margin boundary</Badge>
+          <span className="font-medium">{boundaryMeta.label}</span>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">
+            {boundaryMeta.short} Every market&rsquo;s CM2 below responds to this.
+          </span>
+          <a
+            href="/costs"
+            className="ml-auto text-xs text-neutral-600 underline hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+          >
+            Change
+          </a>
         </div>
 
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">

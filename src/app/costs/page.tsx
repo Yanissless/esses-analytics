@@ -3,18 +3,20 @@ import { db } from "@/db/client";
 import { costAssumptions, productCosts } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth/current-user";
 import { getSkuCostRows } from "@/metrics/cogs";
+import { getMarginBoundary } from "@/metrics/margin-boundary.server";
 import { Badge, Card, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
-import { CostForms } from "./forms";
+import { CostForms, MarginBoundaryForm } from "./forms";
 
 export const dynamic = "force-dynamic";
 
 export default async function CostsPage() {
   const user = await requireAdmin();
-  const [skus, costs, zones] = await Promise.all([
+  const [skus, costs, zones, marginBoundary] = await Promise.all([
     getSkuCostRows(),
     db.select().from(productCosts).orderBy(desc(productCosts.effectiveDate)).limit(100),
     db.select().from(costAssumptions).orderBy(desc(costAssumptions.effectiveDate)),
+    getMarginBoundary(),
   ]);
 
   const csvExport = [
@@ -111,6 +113,8 @@ export default async function CostsPage() {
             </table>
           </div>
         </Card>
+
+        <MarginBoundaryForm current={marginBoundary} />
 
         <CostForms
           zones={zones.map((z) => ({

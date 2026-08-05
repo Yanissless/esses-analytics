@@ -110,6 +110,15 @@ export const marginSettings = pgTable(
     baseAnnualAmount: money("base_annual_amount").notNull().default(10000),
     issuesPerQuarter: doublePrecision("issues_per_quarter").notNull().default(1),
     issuesPerYear: doublePrecision("issues_per_year").notNull().default(4),
+    /**
+     * Which revenue classes bear cost when margin is computed:
+     * 'paid_only' | 'exclude_comps' | 'all_classes'. See metrics/margin-boundary.ts.
+     *
+     * A lens, not a restatement — revenue is identical under all three because comps
+     * and prepaid deliveries collect $0, so only which COSTS are charged changes.
+     * Nothing is rebuilt when it changes, which is what makes it safe to flip live.
+     */
+    marginBoundary: text("margin_boundary").notNull().default("paid_only"),
     currency: currency().notNull().default("USD"),
     note: text("note"),
     ...timestamps,

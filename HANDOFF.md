@@ -1,13 +1,13 @@
 # Esses Analytics — Session Handoff
 
-**Last updated:** 2026-08-04 (session 6)
+**Last updated:** 2026-08-04 (session 7)
 **Project root:** `C:\Users\samwi\esses-analytics`
 **Status:** Phases 1–8b built, plus Marketing/reconciliation, Churn & cohorts, Social
-and Personas. 176 tests pass, typecheck + build clean, all 13 routes render against
-live data. Git baseline exists (§4.9).
+and Personas, with a live margin-boundary setting. 180 tests pass, typecheck + build
+clean, all 13 routes render against live data. Git baseline exists (§4.9).
 
 ⚠️ **Read §5.2 before touching Meta.** Access is blocked at the APP level — a new
-token will not fix it.
+token will not fix it. Sam is working on the unblock.
 
 ---
 
@@ -379,6 +379,35 @@ customer emails to a third party for advertising. The app deliberately does **no
 export contact lists — the counts are sizing only. Esses has 148 UK customers, so
 lawful basis and privacy-policy disclosure want checking before a first upload.
 
+### 4.11 🔴 FIXED — `revenue_class` had drifted into two more copies, both wrong
+
+Found while wiring the boundary. The handoff previously recorded the comp
+misclassification as "fixed… applied identically in order-profit.ts AND rollup.ts" —
+which was true and **incomplete**. Two other copies of the CASE existed and neither had
+the `customer_has_subscription` branch:
+
+- `cogs.ts` (`COSTED_ORDERS`) → drove **`/international`**
+- `profit.ts` (`getProductProfit`) → drove the per-product table on **`/profit`**
+
+Both therefore labelled prepaid subscription deliveries as free comps, inflating the
+comp programme and dropping those units out of trading margin entirely. Live for
+several sessions on two pages.
+
+**Fix: `order_profit` is now the single authority.** Both consumers JOIN it instead of
+re-deriving, and the CASE exists in exactly one place. `getProductProfit` also stopped
+re-deriving `origin` as a side effect.
+
+The join is deliberately **INNER**, which matters: `cogs.ts` omitted
+`processed_at IS NOT NULL` that `order_profit` requires, so a LEFT JOIN left 135
+unprocessed orders defaulting to `'comp'` and inflated comp units by 141 (1,601 vs the
+correct 1,460). Inner-joining makes the two populations identical, so
+`/international` and `/profit` can never disagree about which orders exist — and they
+now produce **identical CM2 to the cent** under every boundary, which they never did
+before.
+
+⚠️ **Do not write another `revenue_class` CASE.** `REVENUE_CLASS_NOTE` in
+`margin-boundary.ts` says so; four copies is how this happened.
+
 ### 4.5 Hardened Shopify network retry
 
 A backfill died on a bare undici `fetch failed` after only ~5s of retry patience
@@ -390,7 +419,51 @@ changed.
 
 ## 5. ⚠️ OPEN PROBLEMS
 
-### 5.1 The margin boundary is a BUSINESS DECISION, not a bug — **still needs Sam**
+### 5.1 ✅ RESOLVED — the margin boundary is now a live setting
+
+No longer an open decision. Sam's call: treat it as an editable placeholder for
+checking margins per region and product and adjusting live against goals, rather than
+an accounting policy to settle up front. Built in session 7:
+
+- `src/metrics/margin-boundary.ts` — pure types/labels/validator (**must stay
+  dependency-free**, it's imported by a client component; see §6 gotcha)
+- `src/metrics/margin-boundary.server.ts` — the SQL predicates + settings read
+- `margin_settings.margin_boundary` column (migration `0008`), default `paid_only`
+- Editable at **`/costs`** as radios showing each option's full trade-off
+- `/profit` and `/international` both respect it and **display which boundary is
+  active** with a link to change it
+- Per-product (`getProductProfit`) and per-market (`getMarketMargins`) margins both
+  respond, which is the "margins per region and product" ask
+
+Safe to flip freely: **revenue is identical under all three** because comps and
+prepaid deliveries collect $0, so the setting only re-filters which costs are
+charged. Nothing is recomputed or rebuilt.
+
+| Boundary | CM1 | CM2 | CM3 |
+|---|---|---|---|
+| Paid orders only *(default)* | $112,452 | **$84,703** (58.6%) | $55,179 (38.2%) |
+| Paid + prepaid deliveries | $51,964 | **−$14,570** (−10.1%) | −$44,094 |
+| Everything, incl. comps | $46,546 | **−$30,134** (−20.8%) | −$59,658 |
+
+Verified end-to-end: setting each value and reading it back gives matching CM2 from
+**both** `/profit` and `/international` (they agree to the cent for the first time —
+see §4.11), and an invalid column value falls back to `paid_only` rather than throwing.
+
+### 5.1a The underlying accounting question is still open (but no longer blocking)
+
+The reason the three answers differ hasn't gone away: prepaid subscription deliveries
+incur cost in a period whose revenue was recognised earlier. The *proper* fix is to
+recognise subscription revenue ratably across the deliveries it funds, or report margin
+per subscription cohort rather than per order. Worth doing eventually; the toggle means
+nothing is blocked on it meanwhile.
+
+Decomposition from `order_profit` (unchanged, and now reconciled everywhere):
+
+| class | orders | units | COGS | shipping | net revenue |
+|---|---|---|---|---|---|
+| paid | 2,766 | 3,542 | $32,110 | $21,284 | $144,562 |
+| prepaid_delivery | 4,712 | 5,958 | $60,488 | $35,265 | $0 |
+| comp | 517 | 1,460 | $5,419 | $9,780 | $0 |
 
 Prepaid subscription deliveries incur cost in one period while their revenue was
 recognised in an earlier one. Three legitimate answers (refreshed, and now
@@ -690,6 +763,15 @@ Consequences:
   integer) does not exist`). Cast: `round(x::numeric, 2)`.
 - ❌ **`pnpm start -- -p 3011` passes `--` through literally** to `next start`, which
   reads it as a project directory. Use `$env:PORT="3011"` instead.
+- ❌ **Importing a module with a DB dependency into a `"use client"` file** kills the
+  build: `Module not found: Can't resolve 'fs'`, traced through
+  `postgres/src/index.js → src/db/client.ts → your module → [Client Component Browser]`.
+  Hit when the `/costs` settings form imported `margin-boundary.ts`. Fix is the split
+  now in place: pure constants/types in `margin-boundary.ts`, drizzle + db in
+  `margin-boundary.server.ts`. **Any shared module a client component imports must be
+  dependency-free.** Typecheck passes either way — only `build` catches it.
+- ❌ **Escaped backticks inside a drizzle `sql\`\`` template** are a TS parse error
+  (`TS1005: ',' expected`). Use double quotes in SQL comments, not backticks.
 - ❌ **Markdown TABLES convert badly when creating a Google Doc** via the Drive
   connector: bold + underscores inside cells came through as literal `\*\*Where\*\*` and
   `utm\\\_source`. Body text, headings, bullets, block quotes and bold all convert
@@ -714,12 +796,7 @@ Consequences:
    in session 3; that's a drift bug waiting to happen, and it's a mechanical change.
    `churn.ts` shows the pattern to copy.
 
-2. **Resolve the margin-boundary divergence (§5.1).** Two pages showing different CM2
-   for the same period is the single most confusing thing in the app right now. Needs
-   Sam's call on revenue recognition, then one boundary applied everywhere (or an
-   explicit, labelled toggle).
-
-3. **Separate the plan-mix confound in the issue cohorts (§5.6).** Issue 04 vs Issue 05
+2. **Separate the plan-mix confound in the issue cohorts (§5.6).** Issue 04 vs Issue 05
    retention differs by 34pp, which would be a major editorial/marketing signal — but
    cadence drives the renewal point, so confirm it survives a per-plan split before
    anyone acts on it. Cheap: `getChurnCohorts('issue_at_signup')` plus a plan filter.
@@ -727,8 +804,13 @@ Consequences:
 4. **Forecast/Goals page** (phase 9) — the last major missing dashboard from the brief.
 
 **Blocked on Sam (don't guess these):**
-- Real per-copy **COGS** + **UK printer-park** cost → §5.3
-- The **margin boundary** decision → §5.1
+- Real per-copy **COGS** + **UK printer-park** cost → §5.3 (now the single biggest
+  unknown, since the margin boundary is settled)
+- **Archive.com** API credentials — Sam is starting that integration himself. The social
+  doc's EMV / potential-reach / UGC metrics come from `app.archive.com`, a separate
+  social-listening tool with its own API. Nothing in this repo touches it yet; when it
+  lands it should follow the same connector contract (`backfill` / `incrementalSync` /
+  `healthCheck`) and be verified token-first like every other connector.
 - A working **`META_ACCESS_TOKEN`** → §5.2, unblocks conversion reconciliation
 - **`read_reports` + Level 2** customer data access → auto shipping cost sync
 - **UTM tagging rollout** → collapses the §5.4 band. Guide is written and delivered
@@ -758,22 +840,30 @@ that token unblocks two things at once.
 Re-run these first to confirm nothing drifted:
 
 ```bash
-C:\Users\samwi\esses-analytics\run.cmd test        # expect: 15 files, 176 tests pass
+C:\Users\samwi\esses-analytics\run.cmd test        # expect: 16 files, 180 tests pass
 C:\Users\samwi\esses-analytics\run.cmd exec tsc --noEmit   # expect: silent
 C:\Users\samwi\esses-analytics\run.cmd build      # expect: 13 routes, clean
 C:\Users\samwi\esses-analytics\run.cmd metrics    # expect: 304 days, MER 5.15
 ```
 
-Verified passing at handoff time (2026-08-04, session 6): **176/176 tests**, typecheck
+⚠️ `tsc --noEmit` does **not** catch a client component importing a DB-dependent
+module — only `build` does (§6). Run build before trusting a change that touches
+shared modules.
+
+Verified passing at handoff time (2026-08-04, session 7): **180/180 tests**, typecheck
 silent, build clean (13 routes), all pages rendering 200 against live data —
 `/marketing` under every model/basis combination, `/churn` under every one of the six
-cohort dimensions, plus `/social` and `/personas`.
+cohort dimensions, `/social`, `/personas`, and `/costs` with the boundary form. The
+boundary was set to each of its three values and read back, with `/profit` and
+`/international` agreeing to the cent each time.
 
 Headline numbers as of handoff — quote these with their caveats, not bare:
 - Revenue (net, Shopify paid ex-VAT + Stripe): **$152,028**
 - Ad spend: **$29,524** · **MER 5.15** · **aMER 2.54** · blended CAC **$7.99**
-- CM1 **$119,918** / CM2 **$92,169** / CM3 **$62,645 (41.2%)** — *paid-order boundary;
-  see §5.1 before quoting, `/profit` shows a different boundary on purpose*
+- CM1 **$119,918** / CM2 **$92,169** / CM3 **$62,645 (41.2%)** — from `daily_metrics`,
+  which includes Stripe's $7,466 and is always on the paid-order boundary because that
+  matches MER's revenue base. `/profit` and `/international` show **$84,703** on the
+  same boundary (Shopify only) and both follow the live setting — §5.1
 - Breakeven MER **1.65×** at 60.6% CM2 margin — advertising covers itself on blended
 - Attributed paid-meta ROAS **0.15×–0.61×** (band, not a point estimate) — §5.4
 - Blended LTV **$66.58**; subscriber premium only **1.1×**

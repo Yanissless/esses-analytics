@@ -6,6 +6,8 @@ import {
   getProfitWaterfall,
   getWorstOrders,
 } from "@/metrics/profit";
+import { BOUNDARY_META } from "@/metrics/margin-boundary";
+import { getMarginBoundary } from "@/metrics/margin-boundary.server";
 import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 
@@ -19,12 +21,14 @@ export default async function ProfitPage() {
   const since = summary.firstOrderDate ?? "2025-10-01";
   const until = summary.lastOrderDate ?? new Date().toISOString().slice(0, 10);
 
+  const boundary = await getMarginBoundary();
   const [waterfall, products, worst, quality] = await Promise.all([
-    getProfitWaterfall(since, until),
-    getProductProfit(since, until),
+    getProfitWaterfall(since, until, boundary),
+    getProductProfit(since, until, boundary),
     getWorstOrders(since, until, 15),
     getProfitQuality(since, until),
   ]);
+  const boundaryMeta = BOUNDARY_META[boundary];
 
   const maxStep = Math.max(...waterfall.steps.map((s) => Math.abs(s.runningCents)), 1);
   const estimatedShipPct =
@@ -44,11 +48,29 @@ export default async function ProfitPage() {
           </p>
         </div>
 
+        {/* Never show a margin figure without saying which boundary produced it. */}
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-white p-3 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+          <Badge tone="blue">margin boundary</Badge>
+          <span className="font-medium">{boundaryMeta.label}</span>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">
+            {boundaryMeta.short}
+          </span>
+          <a
+            href="/costs"
+            className="ml-auto text-xs text-neutral-600 underline hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+          >
+            Change
+          </a>
+        </div>
+
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Stat
             label="Net revenue (ex-VAT)"
             value={formatUsd(waterfall.netRevenueCents)}
-            hint="comps excluded"
+            // Revenue is the same under every boundary — comps and prepaid deliveries
+            // collect $0 — so saying "comps excluded" here would wrongly imply the
+            // setting moves this number. Only the cost lines below respond.
+            hint="same under every boundary"
             emphasis
           />
           <Stat label="CM1 (after COGS)" value={formatUsd(waterfall.cm1Cents)} hint={pct(waterfall.steps.find((s) => s.label === "CM1")?.pctOfRevenue ?? null)} />
