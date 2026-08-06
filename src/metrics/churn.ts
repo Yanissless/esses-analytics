@@ -270,7 +270,24 @@ export type ChurnDimension =
   /** Calendar month the subscription started. */
   | "signup_month"
   /** The customer's stamped marketing acquisition channel. */
-  | "channel";
+  | "channel"
+  /**
+   * Whether the customer has EVER paid, split further for the October 2025
+   * migration batch. This is the dimension that dissolved the "Issue 05 retains
+   * terribly" finding: the free-resubscription cohort churned 99.3% at first
+   * renewal while paid-acquired subscribers of the same window churned 23.6%.
+   * Free signups and migrated legacy subscribers are different populations from
+   * organically-acquired payers, and blending them poisons every other cohort cut.
+   */
+  | "acquisition_type";
+
+/**
+ * The week the legacy 4-issue subscriber base was imported into Skio: 1,023 of the
+ * 1,058 October starts land in these seven days. Their `started_at` is the IMPORT
+ * date, not a real signup — treat tenure computed from it with suspicion.
+ */
+export const MIGRATION_WEEK_START = "2025-10-06";
+export const MIGRATION_WEEK_END = "2025-10-13";
 
 export type ChurnSource = "skio" | "stripe" | "all";
 
@@ -315,8 +332,20 @@ export interface ChurnCohort {
  */
 export const SUBS_CTE = sql`
   subs AS (
+    -- ⚠️ Skio raw_status FAILED = the payment method failed and dunning did not
+    -- recover it. Confirmed against Sam's account of the October 2025 migration:
+    -- legacy 4-issue subscribers were imported needing to re-enter payment details,
+    -- many never did, and their first billing failed. All 270 FAILED subs have a
+    -- next_billing_at in the PAST (264 from the migration week itself), so they are
+    -- dead, not pending — treating them as survivors overstated retention ~8%
+    -- across the board. Their effective churn date is the billing that failed.
     SELECT 'skio'::text AS source, sm.id, sm.customer_id, sm.started_at,
-           sm.cancelled_at AS churned_at, sm.status::text AS status,
+           COALESCE(
+             sm.cancelled_at,
+             CASE WHEN sm.raw_status = 'FAILED' THEN sm.next_billing_at END
+           ) AS churned_at,
+           CASE WHEN sm.raw_status = 'FAILED' THEN 'failed'
+                ELSE sm.status::text END AS status,
            COALESCE(sm.selling_plan_name, 'unknown') AS plan_name,
            sm.billing_interval AS interval, sm.billing_interval_count AS interval_count,
            sm.mrr_amount
@@ -333,11 +362,10 @@ export const SUBS_CTE = sql`
   enriched AS (
     SELECT s.*,
            -- Churn is keyed off the DATE first and status second: 1,145 of 1,152
-           -- Skio cancellations carry a date, and 270 subscriptions have a NULL
-           -- status while clearly live (they hold a next_billing_at). Trusting
-           -- status alone would misclassify both groups.
-           (s.churned_at IS NOT NULL OR s.status = 'canceled') AS is_churned,
-           (s.churned_at IS NULL AND s.status = 'canceled') AS churned_no_date,
+           -- Skio cancellations carry a date. FAILED subs get their failed billing
+           -- date as churned_at in the subs CTE above.
+           (s.churned_at IS NOT NULL OR s.status IN ('canceled', 'failed')) AS is_churned,
+           (s.churned_at IS NULL AND s.status IN ('canceled', 'failed')) AS churned_no_date,
            EXTRACT(EPOCH FROM (now() - s.started_at)) / ${SECONDS_PER_MONTH} AS age_months,
            EXTRACT(EPOCH FROM (COALESCE(s.churned_at, now()) - s.started_at))
              / ${SECONDS_PER_MONTH} AS lived_months,
@@ -443,6 +471,21 @@ function keyExpression(dimension: ChurnDimension): { extraCte: SQL | null; keyEx
         extraCte: null,
         keyExpr: sql`COALESCE(cu.acquisition_channel, 'unattributed')`,
       };
+
+    case "acquisition_type":
+      // Order matters: the migration batch is identified FIRST, because many
+      // migrated subscribers also have no paid order and would otherwise blend
+      // into 'free'. `a.customer_id` comes from the acquiring-PAID-order CTE, so
+      // NULL there means the customer never paid at all.
+      return {
+        extraCte: null,
+        keyExpr: sql`CASE
+          WHEN e.started_at >= ${MIGRATION_WEEK_START} AND e.started_at < ${MIGRATION_WEEK_END}
+            THEN 'migrated (Oct 2025 import)'
+          WHEN a.customer_id IS NULL THEN 'free (no paid order ever)'
+          ELSE 'paid'
+        END`,
+      };
   }
 }
 
@@ -461,6 +504,7 @@ const LABELS: Record<ChurnDimension, (key: string) => string> = {
   plan: (k) => k,
   signup_month: (k) => k,
   channel: (k) => k,
+  acquisition_type: (k) => k,
 };
 
 export interface ChurnCohortOptions {

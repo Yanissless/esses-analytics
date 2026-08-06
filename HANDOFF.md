@@ -495,6 +495,37 @@ are themselves correlated so they can't be cleanly separated, but the actionable
 is acquisition mix — not editorial. Worth stating plainly to anyone who sees the raw
 issue comparison, because the obvious reading ("Issue 05 was worse") is wrong.
 
+**§4.13a — SUPERSEDED BY SAM'S CONTEXT (session 9), and now fully explained.**
+Sam supplied the missing history: Esses switched to Skio in **October 2025**, importing
+legacy "4-issue subscription" product buyers who then had to re-enter payment details;
+many never did and died in dunning; others resubscribed creating cancelled duplicates;
+and **free/heavily-discounted resubscriptions were offered to legacy buyers**. All of it
+is visible in the data:
+
+- **1,023 subscription starts in the week of 2025-10-06** — the import batch. Their
+  `started_at` is the import date, not a real signup (`MIGRATION_WEEK_*` constants).
+- **`raw_status = 'FAILED'` (270 subs, 264 from the migration week)** is the dunning
+  graveyard — every one has `next_billing_at` in the past. ⚠️ The old note here
+  claiming they were "clearly live" was wrong; they are dead. `SUBS_CTE` now treats
+  FAILED as churned at the failed billing date, which the churn AND personas maths
+  inherit.
+- **The March 2026 clump (923 starts, 394 with no paid order)** is the free
+  resubscription offer — and it lands inside the Issue 05 window.
+
+**The final split kills the issue narrative entirely.** Within the Quarterly plan:
+free-acquired subscribers churned **99.3%** at first renewal (n=306) — the free
+quarter simply expired; paid-acquired "Issue 05" subscribers churned **23.6%**
+(n=571) vs Issue 04's 15.1%. So the honest reading of "Issue 05 churns at 50%" is:
+**a free-resubscription campaign ended**, plus a modest 8.5pp gap among real payers.
+
+New churn dimension **`acquisition_type`** (paid / free / migrated) on `/churn` makes
+this first-class. Live numbers: paid 21.6% churn@1st, LTV $69.06 · migrated raw churn
+82.2% (no renewal faced yet — annual) · free 98.4% churn@1st, LTV $11.65.
+
+⚠️ **Analysis discipline going forward:** any cohort or LTV cut that doesn't separate
+`acquisition_type` blends three different populations and will mislead — this is now
+the first split to apply, before channel, issue or promo.
+
 ### 4.14 ✅ Built — Forecast & goals (`/forecast`), phase 9
 
 The last major dashboard from the brief. `goals` table (migration `0009`), one row per
@@ -971,16 +1002,16 @@ Consequences:
 
 **In order:**
 
-1. **Act on §4.13.** The Issue 05 retention problem is an *acquisition mix* problem —
-   68% organic-social, and 35% with no paid order at all — not an editorial one. Levers:
-   shift acquisition toward newsletter (~0% first-renewal churn, $113 LTV) and away from
-   untagged organic social; and decide whether free-first-issue signups justify their
-   ~50% first-renewal churn. Both need the UTM rollout to measure properly.
+1. **Decide what free resubscriptions are for (§4.13a).** They converted at ~1.6% —
+   306 of 311 mature free signups were gone at first renewal. If the goal was
+   converting legacy readers to paying auto-renew, it didn't work; if it was goodwill
+   or list retention, it may still be worth it, but it should never be measured as
+   subscriber acquisition. The July "Free Quarterly Campaign" repeats the pattern
+   (209 no-paid starts) — its first renewals land ~October 2026 and are worth watching.
 
-2. **Trace the free-acquisition route.** 306 mature Issue 05 subscribers have no paid
-   Shopify order at all. The mechanism isn't visible in `discount_codes` — a $0 selling
-   plan? an automatic discount? a comp converted to a subscription? It's a third of that
-   cohort and currently unexplained.
+2. **The real retention picture after cleanup:** paid-acquired subscribers churn
+   21.6% at first renewal with LTV $69. That's the healthy baseline; the scary
+   blended numbers were migration artefacts and expired free quarters.
 
 3. **Phase 10 validation pass and phase 11 advertiser reporting** are now the only
    substantial items left from the original brief, plus AI insights + the Slack digest.

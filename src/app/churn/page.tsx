@@ -36,6 +36,12 @@ const DIMENSIONS: Array<{ id: ChurnDimension; label: string; blurb: string }> = 
     label: "Issue purchased",
     blurb: "the issue actually on the acquiring order — precise, but sparse",
   },
+  {
+    id: "acquisition_type",
+    label: "Paid / free / migrated",
+    blurb:
+      "whether the customer ever paid, with the October 2025 Skio import batch separated — the split that explains most cohort gaps",
+  },
 ];
 
 function isDimension(v: string | undefined): v is ChurnDimension {
