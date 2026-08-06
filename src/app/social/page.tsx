@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/current-user";
+import { requireCapability } from "@/lib/auth/current-user";
 import { getRevenueSummary } from "@/metrics/overview";
 import { getChurnCohorts } from "@/metrics/churn";
 import {
@@ -19,7 +19,7 @@ const x = (v: number | null) => (v == null ? "—" : `${v.toFixed(2)}×`);
 const money = (v: number | null) => (v == null ? "—" : formatUsd(v));
 
 export default async function SocialPage() {
-  const user = await requireUser();
+  const user = await requireCapability("marketing");
   const summary = await getRevenueSummary();
   const since = summary.firstOrderDate ?? "2025-10-01";
   const until = summary.lastOrderDate ?? new Date().toISOString().slice(0, 10);

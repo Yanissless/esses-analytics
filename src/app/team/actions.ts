@@ -7,6 +7,7 @@ import { db } from "@/db/client";
 import { users } from "@/db/schema";
 import { requireAdmin, requireUser } from "@/lib/auth/current-user";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { isRole, ROLE_META, ROLES } from "@/lib/auth/capabilities";
 
 export type TeamActionState = { error?: string; ok?: string; tempPassword?: string };
 
@@ -48,7 +49,7 @@ export async function inviteUser(
   const role = String(formData.get("role") ?? "viewer");
 
   if (!EMAIL.test(email)) return { error: "That doesn't look like an email address." };
-  if (role !== "admin" && role !== "viewer") return { error: "Role must be admin or viewer." };
+  if (!isRole(role)) return { error: `Role must be one of: ${ROLES.join(", ")}.` };
 
   const [existing] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existing) {
@@ -84,14 +85,14 @@ export async function setUserRole(
   const userId = String(formData.get("userId") ?? "");
   const role = String(formData.get("role") ?? "");
 
-  if (role !== "admin" && role !== "viewer") return { error: "Role must be admin or viewer." };
+  if (!isRole(role)) return { error: `Role must be one of: ${ROLES.join(", ")}.` };
   if (!userId) return { error: "Missing user." };
 
-  if (userId === me.sub && role === "viewer") {
+  if (userId === me.sub && role !== "admin") {
     // Self-demotion is the fastest way to lock yourself out of the admin surfaces.
     return { error: "You can't demote yourself — ask another admin to do it." };
   }
-  if (role === "viewer" && (await otherActiveAdmins(userId)) === 0) {
+  if (role !== "admin" && (await otherActiveAdmins(userId)) === 0) {
     return { error: "That's the only admin left. Promote someone else first." };
   }
 
@@ -100,7 +101,11 @@ export async function setUserRole(
 
   await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, userId));
   revalidatePath("/team");
-  return { ok: `${target.email} is now ${role}.` };
+  return {
+    ok:
+      `${target.email} is now ${ROLE_META[role].label}.` +
+      (ROLE_META[role].withheld ? ` They can no longer see: ${ROLE_META[role].withheld}` : ""),
+  };
 }
 
 /**

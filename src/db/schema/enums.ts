@@ -1,7 +1,14 @@
 import { pgEnum } from "drizzle-orm/pg-core";
 
-/** Application roles (Section 10). Coarse for v1: admin vs read-only viewer. */
-export const userRole = pgEnum("user_role", ["admin", "viewer"]);
+/**
+ * Application roles (Section 10).
+ *
+ * `marketing` is a restricted read role: acquisition and cohort performance, but no
+ * cost/margin data and no individual customer records. What each role can actually
+ * reach is defined once in `lib/auth/capabilities.ts` — don't compare roles directly
+ * in a page, ask for a capability.
+ */
+export const userRole = pgEnum("user_role", ["admin", "viewer", "marketing"]);
 
 /**
  * Order origin.

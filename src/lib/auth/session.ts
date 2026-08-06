@@ -10,7 +10,9 @@ import { SignJWT, jwtVerify } from "jose";
 export const SESSION_COOKIE = "esses_session";
 export const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 7; // 7 days
 
-export type Role = "admin" | "viewer";
+/** Re-exported from capabilities.ts so there's one definition of the role set. */
+export type { Role } from "./capabilities";
+import { isRole, type Role } from "./capabilities";
 
 export interface SessionPayload {
   sub: string; // user id
@@ -46,7 +48,7 @@ export async function verifySession(
     if (
       typeof payload.sub !== "string" ||
       typeof payload.email !== "string" ||
-      (role !== "admin" && role !== "viewer")
+      !isRole(role)
     ) {
       return null;
     }

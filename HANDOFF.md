@@ -4,7 +4,7 @@
 **Project root:** `C:\Users\samwi\esses-analytics`
 **Status:** Phases 1–9 built. Marketing/reconciliation, Churn & cohorts, Social,
 Personas and Forecast & goals, with a live margin-boundary setting and COGS
-sensitivity/coverage. 205 tests pass, typecheck + lint + build clean, all 17 routes
+sensitivity/coverage. 218 tests pass, typecheck + lint + build clean, all 17 routes
 render against live data. Git baseline exists (§4.9).
 
 **Every major dashboard from the brief now exists**, and the app is
@@ -613,6 +613,56 @@ Verified: 503 with no secret, 401 with a wrong one, and authorisation passing un
 header forms (proven with an invalid `?source=` so the check ran without triggering a
 live sync).
 
+### 4.17 ✅ Built — the `marketing` role, via a capability layer
+
+Sam asked for a restricted role ready for future use. Built as **capabilities**, not
+role checks: every page previously called `requireUser()` or `requireAdmin()`, and adding
+a third role that way would mean a role comparison scattered across seventeen routes —
+the same copy-paste-then-drift pattern that already caused two live bugs here. A page
+that got missed would **leak data** rather than merely miscalculate.
+
+`src/lib/auth/capabilities.ts` is now the single definition. Pages call
+`requireCapability(cap)`; the nav filters on the same map. Adding a role edits one object.
+
+Capabilities: `marketing` · `audience` · `revenue` · `margin` · `customers` ·
+`settings` · `team`.
+
+| Role | Has |
+|---|---|
+| `admin` | everything |
+| `viewer` | all reads, no writes — **unchanged**, pinned by a test |
+| `marketing` | `marketing` + `audience` only |
+
+**What `marketing` deliberately CAN see:** `/marketing`, `/social`, `/churn`,
+`/personas`, `/account`. That includes aggregate revenue and cohort-level LTV, because
+**"marketing only" can't mean "no revenue"** — MER and ROAS are revenue ÷ spend.
+
+**What it CANNOT:** `/` Overview, `/profit`, `/international`, `/customers`,
+`/forecast`, `/costs`, `/shipping`, `/team`. So: no cost or margin, and no individual
+customer records.
+
+⚠️ **Overview is blocked rather than trimmed.** It carries CM3 *and* a top-customers
+table with email addresses. Hiding sections was the alternative; blocking the page is
+safer, because a missed section is a silent data leak whereas a wrong redirect is merely
+annoying. Same reasoning for `/forecast` (CM3 goals).
+
+`landingPathFor(role)` sends marketing users to `/marketing`, and a test asserts the
+landing page is always one the role can actually reach — otherwise `requireCapability`
+would bounce them between two forbidden pages forever.
+
+One targeted in-page hide: `/marketing`'s **Breakeven MER** tile is derived from CM2 and
+its hint printed the margin percentage outright, so it's swapped for a "New customers"
+tile without `margin`. MER/aMER/CAC stay — they're revenue and spend only.
+
+**Verified live**, not just unit-tested: a temporary marketing-role user got 200 on the
+five permitted paths, **307 → /marketing on all eight forbidden ones**, a nav offering
+only its five links, and no "Breakeven MER" or "CM2 margin" text anywhere on the page.
+The test user was removed afterwards. 13 new tests assert each exclusion *individually*,
+since one combined assertion would still pass if the map were widened.
+
+Migration `0010` adds the enum value. The Team page role picker is now a select (a
+two-way toggle can't express three roles) and lists what each role withholds.
+
 ### 4.5 Hardened Shopify network retry
 
 A backfill died on a bare undici `fetch failed` after only ~5s of retry patience
@@ -1105,7 +1155,7 @@ that token unblocks two things at once.
 Re-run these first to confirm nothing drifted:
 
 ```bash
-C:\Users\samwi\esses-analytics\run.cmd test        # expect: 18 files, 205 tests pass
+C:\Users\samwi\esses-analytics\run.cmd test        # expect: 19 files, 218 tests pass
 C:\Users\samwi\esses-analytics\run.cmd exec tsc --noEmit   # expect: silent
 C:\Users\samwi\esses-analytics\run.cmd lint       # expect: 0 errors (5 unused-import warnings)
 C:\Users\samwi\esses-analytics\run.cmd build      # expect: 17 routes, clean
@@ -1119,7 +1169,7 @@ shared modules. **`lint` catches things neither does** (impure calls during rend
 ⚠️ **Run `run.cmd metrics` after any backfill.** `order_profit` is materialised, and a
 stale one silently under-reports `/international` — see the correction in §4.11.
 
-Verified passing at handoff time (2026-08-06, session 8): **205/205 tests**, typecheck
+Verified passing at handoff time (2026-08-06, session 8): **218/218 tests**, typecheck
 silent, lint 0 errors, build clean (17 routes), all pages rendering 200 against live
 data — `/marketing` under every model/basis combination, `/churn` under all six cohort
 dimensions **and with the plan filter applied**, `/social`, `/personas`, `/forecast`,

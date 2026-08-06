@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/current-user";
+import { requireCapability } from "@/lib/auth/current-user";
 import { getRevenueSummary } from "@/metrics/overview";
 import {
   getProductProfit,
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
 
 export default async function ProfitPage() {
-  const user = await requireUser();
+  const user = await requireCapability("margin");
   const summary = await getRevenueSummary();
   const since = summary.firstOrderDate ?? "2025-10-01";
   const until = summary.lastOrderDate ?? new Date().toISOString().slice(0, 10);

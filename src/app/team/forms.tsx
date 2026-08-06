@@ -9,6 +9,7 @@ import {
   setUserRole,
   type TeamActionState,
 } from "./actions";
+import { ROLES, ROLE_META, type Role } from "@/lib/auth/capabilities";
 
 const initial: TeamActionState = {};
 
@@ -77,8 +78,11 @@ export function InviteForm() {
             Role
           </label>
           <select id="invite-role" name="role" className={input} defaultValue="viewer">
-            <option value="viewer">Viewer — read everything</option>
-            <option value="admin">Admin — can also edit costs and goals</option>
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {ROLE_META[r].label} — {ROLE_META[r].summary}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -146,15 +150,24 @@ export function MemberRow({ member }: { member: TeamMember }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <form action={roleAction}>
+          {/* A select rather than a toggle: with three roles a two-way switch can't
+              express the middle one. */}
+          <form action={roleAction} className="flex items-center gap-1">
             <input type="hidden" name="userId" value={member.id} />
-            <input
-              type="hidden"
+            <select
               name="role"
-              value={member.role === "admin" ? "viewer" : "admin"}
-            />
+              defaultValue={member.role}
+              className="rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-950"
+              aria-label={`Role for ${member.email}`}
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {ROLE_META[r].label}
+                </option>
+              ))}
+            </select>
             <button type="submit" className={subtle} disabled={rolePending}>
-              {member.role === "admin" ? "Make viewer" : "Make admin"}
+              {rolePending ? "Saving…" : "Set role"}
             </button>
           </form>
 

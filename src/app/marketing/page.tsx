@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth/current-user";
+import { requireCapability } from "@/lib/auth/current-user";
+import { can } from "@/lib/auth/capabilities";
 import { getRevenueSummary } from "@/metrics/overview";
 import { getPeriodMetrics } from "@/metrics/rollup";
 import { breakevenMer, ratio } from "@/metrics/formulas";
@@ -49,10 +50,13 @@ export default async function MarketingPage({
 }: {
   searchParams: Promise<{ model?: string; basis?: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requireCapability("marketing");
   const params = await searchParams;
   const model: AttributionModel = isModel(params.model) ? params.model : "last-non-direct";
   const basis: AttributionBasis = isBasis(params.basis) ? params.basis : "session-only";
+
+  // The marketing role reaches this page but must not see cost/margin figures.
+  const showMargin = can(user.role, "margin");
 
   const summary = await getRevenueSummary();
   const since = summary.firstOrderDate ?? "2025-10-01";
@@ -124,18 +128,29 @@ export default async function MarketingPage({
             value={money(period.cac)}
             hint={`${formatNum(period.newCustomers)} new customers`}
           />
-          <Stat
-            label="Breakeven MER"
-            value={x(breakeven)}
-            hint={
-              cmPct == null
-                ? "needs a margin figure"
-                : `at ${pct(cmPct)} CM2 margin, paid-order boundary`
-            }
-          />
+          {/* Breakeven MER is derived from CM2, and its hint states the margin % outright,
+              so it's withheld from roles without margin access. MER/aMER/CAC above are
+              revenue-and-spend only and stay visible. */}
+          {showMargin ? (
+            <Stat
+              label="Breakeven MER"
+              value={x(breakeven)}
+              hint={
+                cmPct == null
+                  ? "needs a margin figure"
+                  : `at ${pct(cmPct)} CM2 margin, paid-order boundary`
+              }
+            />
+          ) : (
+            <Stat
+              label="New customers"
+              value={formatNum(period.newCustomers)}
+              hint="first-time buyers in the window"
+            />
+          )}
         </div>
 
-        {period.mer != null && breakeven != null ? (
+        {showMargin && period.mer != null && breakeven != null ? (
           <div
             className={`rounded-xl border p-4 text-sm ${
               period.mer >= breakeven

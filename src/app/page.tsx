@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/current-user";
+import { requireCapability } from "@/lib/auth/current-user";
 import {
   getDataQuality,
   getMonthlyRevenue,
@@ -21,7 +21,7 @@ const ORDER_TYPE_LABELS: Record<string, string> = {
 };
 
 export default async function Overview() {
-  const user = await requireUser();
+  const user = await requireCapability("revenue");
   const [summary, monthly, mix, subs, quality, topCustomers] = await Promise.all([
     getRevenueSummary(),
     getMonthlyRevenue(),

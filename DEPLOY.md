@@ -318,15 +318,21 @@ Invoke-WebRequest -Method POST -Uri "https://analytics.esses.com/api/sync?source
    it.
 4. They sign in and change it under **Account** (click your email, top right)
 
-### Understand the two roles before you invite anyone
+### Understand the three roles before you invite anyone
 
+Pick the **narrowest** one that does the job.
+
+- **Marketing** — channel, campaign and cohort performance. Sees Marketing, Social,
+  Churn & cohorts, and Personas. **Cannot** see cost or margin (COGS, CM1–CM3, per-market
+  profit) or any individual customer record. It *does* see aggregate revenue, because
+  return on ad spend is meaningless without it. Use this for an agency, a freelancer, or
+  a social manager.
 - **Viewer** — sees **everything**. Revenue, margin, customer lifetime value, individual
-  customer names and emails.
+  customer names and emails. Changes nothing.
 - **Admin** — all of the above, plus can change costs, goals, the margin setting, and add
   or remove people.
 
-**There is no "marketing only" or "no financials" role.** If someone shouldn't see margin
-and customer data, don't invite them yet — tell me and I'll build a restricted role.
+The Team page lists what each role withholds, right where you pick it.
 
 Removing someone: click **Deactivate**. It takes effect immediately, not whenever their
 session expires.

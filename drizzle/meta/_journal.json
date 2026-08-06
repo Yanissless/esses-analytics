@@ -71,6 +71,13 @@
       "when": 1786032971433,
       "tag": "0009_serious_mojo",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786048412047,
+      "tag": "0010_flimsy_puff_adder",
+      "breakpoints": true
     }
   ]
 }

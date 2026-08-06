@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth/current-user";
+import { requireCapability } from "@/lib/auth/current-user";
 import {
   getChurnCohorts,
   getIssueWindows,
@@ -53,7 +53,7 @@ export default async function ChurnPage({
 }: {
   searchParams: Promise<{ dim?: string; plan?: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requireCapability("audience");
   const params = await searchParams;
   const dimension: ChurnDimension = isDimension(params.dim) ? params.dim : "issue_at_signup";
 

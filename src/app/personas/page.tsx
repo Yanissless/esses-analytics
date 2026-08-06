@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/current-user";
+import { requireCapability } from "@/lib/auth/current-user";
 import {
   getGeoConcentration,
   getPersonaProfiles,
@@ -15,7 +15,7 @@ const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%
 const money = (v: number | null) => (v == null ? "—" : formatUsd(v));
 
 export default async function PersonasPage() {
-  const user = await requireUser();
+  const user = await requireCapability("audience");
   const [profiles, overlap, geo] = await Promise.all([
     getPersonaProfiles(),
     getSegmentOverlap(),

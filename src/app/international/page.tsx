@@ -1,7 +1,7 @@
 import { db } from "@/db/client";
 import { marginSettings } from "@/db/schema";
 import { desc } from "drizzle-orm";
-import { requireUser } from "@/lib/auth/current-user";
+import { requireCapability } from "@/lib/auth/current-user";
 import { getMarginSummary, getMarketMargins } from "@/metrics/cogs";
 import { BOUNDARY_META } from "@/metrics/margin-boundary";
 import { getMarginBoundary } from "@/metrics/margin-boundary.server";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 const pct = (f: number) => `${(f * 100).toFixed(1)}%`;
 
 export default async function InternationalPage() {
-  const user = await requireUser();
+  const user = await requireCapability("margin");
   const boundary = await getMarginBoundary();
   const [summary, markets, settingsRows] = await Promise.all([
     getMarginSummary(boundary),

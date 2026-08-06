@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../db/client";
 import { users } from "../../db/schema";
 import { SESSION_COOKIE, verifySession, type SessionPayload } from "./session";
+import { can, landingPathFor, type Capability } from "./capabilities";
 
 export async function getCurrentUser(): Promise<SessionPayload | null> {
   const store = await cookies();
@@ -43,9 +44,24 @@ export async function requireUser(): Promise<SessionPayload> {
   return { ...session, role: row.role, name: row.name ?? session.name };
 }
 
-/** Redirect viewers away from admin-only surfaces. */
-export async function requireAdmin(): Promise<SessionPayload> {
+/**
+ * Guard a page on a capability rather than a role.
+ *
+ * Pages must use this, never a direct role comparison — `lib/auth/capabilities.ts` is
+ * the single definition of who can reach what, and a page that compares roles itself
+ * will be missed when a role is added or changed. Getting that wrong here leaks data
+ * rather than merely miscalculating, which is why it's centralised.
+ *
+ * Sends the user to their own landing page rather than a bare "/", because "/" is itself
+ * capability-gated and a marketing user redirected there would bounce again.
+ */
+export async function requireCapability(capability: Capability): Promise<SessionPayload> {
   const user = await requireUser();
-  if (user.role !== "admin") redirect("/");
+  if (!can(user.role, capability)) redirect(landingPathFor(user.role));
   return user;
+}
+
+/** Write access to costs, goals and settings. Kept for the admin-only surfaces. */
+export async function requireAdmin(): Promise<SessionPayload> {
+  return requireCapability("settings");
 }

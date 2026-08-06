@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { goals } from "@/db/schema";
-import { requireUser } from "@/lib/auth/current-user";
+import { requireCapability } from "@/lib/auth/current-user";
 import { GOAL_METRICS, isGoalMetric } from "@/metrics/forecast";
 import {
   getGoalProgress,
@@ -22,7 +22,7 @@ const fmt = (value: number, unit: "money" | "count") =>
   unit === "money" ? formatUsd(value) : formatNum(value);
 
 export default async function ForecastPage() {
-  const user = await requireUser();
+  const user = await requireCapability("revenue");
 
   /*
    * "Today" is the last day daily_metrics actually holds, not the wall clock. Projecting

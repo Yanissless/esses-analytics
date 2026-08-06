@@ -1,23 +1,30 @@
 import Link from "next/link";
 import { logout } from "../login/actions";
+import { can, type Capability, type Role } from "@/lib/auth/capabilities";
 import { Badge } from "./ui";
 
-const LINKS = [
-  { href: "/", label: "Overview" },
-  { href: "/profit", label: "Profit" },
-  { href: "/marketing", label: "Marketing" },
-  { href: "/social", label: "Social" },
-  { href: "/customers", label: "Customers & LTV" },
-  { href: "/churn", label: "Churn & cohorts" },
-  { href: "/personas", label: "Personas" },
-  { href: "/forecast", label: "Forecast" },
-  { href: "/international", label: "International margin" },
-  { href: "/costs", label: "Costs", adminOnly: true },
-  { href: "/shipping", label: "Shipping", adminOnly: true },
-  { href: "/team", label: "Team", adminOnly: true },
+/**
+ * Every link carries the capability that gates its page, so the nav and the page guard
+ * are driven by the same map in `lib/auth/capabilities.ts`. A link the user can't follow
+ * simply isn't rendered — and because the page guards independently, hiding the link is
+ * presentation rather than the security boundary.
+ */
+const LINKS: Array<{ href: string; label: string; capability: Capability }> = [
+  { href: "/", label: "Overview", capability: "revenue" },
+  { href: "/profit", label: "Profit", capability: "margin" },
+  { href: "/marketing", label: "Marketing", capability: "marketing" },
+  { href: "/social", label: "Social", capability: "marketing" },
+  { href: "/customers", label: "Customers & LTV", capability: "customers" },
+  { href: "/churn", label: "Churn & cohorts", capability: "audience" },
+  { href: "/personas", label: "Personas", capability: "audience" },
+  { href: "/forecast", label: "Forecast", capability: "revenue" },
+  { href: "/international", label: "International margin", capability: "margin" },
+  { href: "/costs", label: "Costs", capability: "settings" },
+  { href: "/shipping", label: "Shipping", capability: "settings" },
+  { href: "/team", label: "Team", capability: "team" },
 ];
 
-export function Nav({ email, role }: { email: string; role: string }) {
+export function Nav({ email, role }: { email: string; role: Role }) {
   const initial = email.charAt(0).toUpperCase();
   return (
     <header className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
@@ -25,7 +32,7 @@ export function Nav({ email, role }: { email: string; role: string }) {
         <div className="flex items-center gap-4">
           <span className="text-sm font-semibold tracking-tight">Esses Analytics</span>
           <nav className="flex items-center gap-1">
-            {LINKS.filter((l) => !l.adminOnly || role === "admin").map((l) => (
+            {LINKS.filter((l) => can(role, l.capability)).map((l) => (
               <Link
                 key={l.href}
                 href={l.href}
