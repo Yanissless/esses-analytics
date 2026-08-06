@@ -22,6 +22,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { DEFAULT_MARGIN_BOUNDARY, type MarginBoundary } from "./margin-boundary";
 import { boundaryCostFilter } from "./margin-boundary.server";
+import { expectedRateCentsSql } from "../lib/shipping/rate-rules";
 
 async function rows<T>(query: ReturnType<typeof sql>): Promise<T[]> {
   return (await db.execute(query)) as unknown as T[];
@@ -120,19 +121,12 @@ const COSTED_ORDERS = sql`
   -- invoice has landed yet. Better than a flat zone average.
   rate_est AS (
     SELECT f.order_id,
-           sum((SELECT rr.expected_cost_amount
-                  FROM shipping_rate_rules rr
-                 WHERE (rr.carrier_pattern IS NULL
-                         OR lower(coalesce(f.tracking_company,'')) LIKE '%' || lower(rr.carrier_pattern) || '%')
-                   AND (rr.service_pattern IS NULL
-                         OR lower(coalesce(f.service_name,'')) LIKE '%' || lower(rr.service_pattern) || '%')
-                   AND (rr.country_code IS NULL OR rr.country_code = om2.country)
-                   AND (rr.exclude_country_code IS NULL
-                         OR rr.exclude_country_code <> COALESCE(om2.country, ''))
-                   AND (rr.zone IS NULL OR rr.zone = om2.zone)
-                   AND rr.effective_date <= COALESCE(f.shipped_at::date, CURRENT_DATE)
-                 ORDER BY rr.priority DESC, rr.effective_date DESC
-                 LIMIT 1)) AS ship_rate,
+           sum(${expectedRateCentsSql({
+             fulfilment: "f",
+             country: sql`om2.country`,
+             zone: sql`om2.zone`,
+             effectiveOn: sql`COALESCE(f.shipped_at::date, CURRENT_DATE)`,
+           })}) AS ship_rate,
            count(*) AS shipments
     FROM fulfillments f
     JOIN ord_mkt om2 ON om2.id = f.order_id

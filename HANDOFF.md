@@ -1,6 +1,6 @@
 # Esses Analytics — Session Handoff
 
-**Last updated:** 2026-08-04 (session 7)
+**Last updated:** 2026-08-06 (session 8)
 **Project root:** `C:\Users\samwi\esses-analytics`
 **Status:** Phases 1–8b built, plus Marketing/reconciliation, Churn & cohorts, Social
 and Personas, with a live margin-boundary setting and COGS sensitivity/coverage.
@@ -398,16 +398,53 @@ several sessions on two pages.
 re-deriving, and the CASE exists in exactly one place. `getProductProfit` also stopped
 re-deriving `origin` as a side effect.
 
-The join is deliberately **INNER**, which matters: `cogs.ts` omitted
-`processed_at IS NOT NULL` that `order_profit` requires, so a LEFT JOIN left 135
-unprocessed orders defaulting to `'comp'` and inflated comp units by 141 (1,601 vs the
-correct 1,460). Inner-joining makes the two populations identical, so
+The join is deliberately **INNER**: it makes the two populations identical, so
 `/international` and `/profit` can never disagree about which orders exist — and they
 now produce **identical CM2 to the cent** under every boundary, which they never did
 before.
 
+⚠️ **Correction to session 7's stated reason.** I originally attributed the 135-order
+gap (and the 141 inflated comp units under a LEFT JOIN) to `cogs.ts` omitting
+`processed_at IS NOT NULL`. That was **wrong**: verified in session 8, there are
+**zero** countable orders with a NULL `processed_at`, so that filter excludes nothing.
+The real cause was that `order_profit` was **stale** — last rebuilt before the
+session-4 discount-code backfill added orders, so it held 7,995 rows against a
+population of 8,130. The INNER JOIN is still correct (it guarantees the populations
+match, which is the invariant worth having), but the failure it protects against is
+**a stale `order_profit`**, not an unprocessed-order edge case. Run `run.cmd metrics`
+after any backfill or `/international` silently under-reports.
+
 ⚠️ **Do not write another `revenue_class` CASE.** `REVENUE_CLASS_NOTE` in
 `margin-boundary.ts` says so; four copies is how this happened.
+
+### 4.12 ✅ Consolidated the rate-rule predicate (5 copies → 1)
+
+`src/lib/shipping/rate-rules.ts` is now the single definition of how a shipment matches
+a `shipping_rate_rules` row. `expectedRateCentsSql()` replaced hand-written subqueries
+in `order-profit.ts`, `rollup.ts`, `cogs.ts` and **both** sites in
+`lib/shipping/match.ts`. Zero copies of `rr.carrier_pattern IS NULL` remain outside it.
+
+They had already drifted, which is the point:
+
+- `order-profit.ts` and `rollup.ts` **ignored `service_pattern`** — a service-scoped
+  rule would price differently on `/international` than in the materialised
+  `order_profit` the Profit page reads
+- both `match.ts` sites **ignored `zone`** — so the seeded "International (any
+  carrier)" rule, scoped to `zone = 'row'`, could match a **US** shipment during batch
+  allocation. `zoneFromCountrySql()` resolves zone from `market_config` for queries that
+  have no zone column, which closes it.
+
+**Behaviour-preserving where it matters, a real fix where it doesn't:** no rule
+currently sets `service_pattern` (verified: 0 of 13), so the metrics path is unchanged.
+**Two** rules set `zone`, so `match.ts` genuinely changes — for the better.
+
+⚠️ **Dormant fix worth knowing about:** `exclude_country_code` is set on **0 of 13**
+rules. The session-3 code change that scopes derived international rules to exclude US
+only takes effect when `refreshRateRules()` runs, i.e. on a shipping-report sync or CSV
+import — and ShopifyQL is still blocked (§6). The §5.1 shipping fix therefore currently
+rests entirely on the country-population fix making the `country_code = 'US'` domestic
+rules reachable at priority 60. That's sufficient today, but the belt-and-braces half is
+not in the data yet.
 
 ### 4.5 Hardened Shopify network retry
 
@@ -699,10 +736,11 @@ Consequences:
 - **85 orders still have no country** → they match `exclude_country_code` rules and get
   international rates (73 of them at $14.44/unit). Small, but they're the reason the
   `COALESCE(om.country, '')` guard exists in the matching SQL.
-- **Rate-rule matching SQL is copy-pasted in four places** (§3). The `revenue_class`
-  CASE is duplicated in two. A single shared SQL fragment would remove a whole class of
-  drift bug. (`churn.ts` now does this correctly — `OPS_DISCOUNT_SQL_REGEX` is generated
-  from the TS pattern list, so the two can't diverge. Same trick applies here.)
+- ~~**Rate-rule matching SQL is copy-pasted in four places.**~~ ✅ Done in session 8 —
+  see §4.12. Both this and the `revenue_class` CASE (§4.11) now have exactly one
+  definition, alongside `OPS_DISCOUNT_SQL_REGEX` in churn.ts. **Three duplications, two
+  of which had already caused live bugs.** If you add a fifth surface that needs any of
+  them, import the shared fragment.
 - **Issue release windows are derived, not authoritative.** `getIssueWindows()` infers
   them from first non-pre-order sale. Issues 01–03 were already selling when the data
   window opened, so they're collapsed into an honest "Issue 03 or earlier" cohort.
@@ -845,12 +883,7 @@ Consequences:
 
 **In order:**
 
-1. **Consolidate the duplicated rate-rule / `revenue_class` SQL** into shared
-   fragments (§5.7). Four copies of the matching predicate had to be edited in lockstep
-   in session 3; that's a drift bug waiting to happen, and it's a mechanical change.
-   `churn.ts` shows the pattern to copy.
-
-2. **Separate the plan-mix confound in the issue cohorts (§5.6).** Issue 04 vs Issue 05
+1. **Separate the plan-mix confound in the issue cohorts (§5.6).** Issue 04 vs Issue 05
    retention differs by 34pp, which would be a major editorial/marketing signal — but
    cadence drives the renewal point, so confirm it survives a per-plan split before
    anyone acts on it. Cheap: `getChurnCohorts('issue_at_signup')` plus a plan filter.
@@ -912,8 +945,8 @@ boundary was set to each of its three values and read back, with `/profit` and
 `/international` agreeing to the cent each time.
 
 Headline numbers as of handoff — quote these with their caveats, not bare:
-- Revenue (net, Shopify paid ex-VAT + Stripe): **$152,028**
-- Ad spend: **$29,524** · **MER 5.15** · **aMER 2.54** · blended CAC **$7.99**
+- Revenue (net, Shopify paid ex-VAT + Stripe): **$152,204**
+- Ad spend: **$29,524** · **MER 5.16** · **aMER 2.54** · blended CAC **$7.72**
 - CM1 **$119,918** / CM2 **$92,169** / CM3 **$62,645 (41.2%)** — from `daily_metrics`,
   which includes Stripe's $7,466 and is always on the paid-order boundary because that
   matches MER's revenue base. `/profit` and `/international` show **$84,703** on the

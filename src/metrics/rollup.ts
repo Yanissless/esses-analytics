@@ -20,6 +20,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { logger } from "../lib/logger";
+import { expectedRateCentsSql } from "../lib/shipping/rate-rules";
 import {
   amer,
   aov,
@@ -126,16 +127,12 @@ const DAILY_SOURCE = sql`
   ),
   rate_est AS (
     SELECT f.order_id,
-           sum((SELECT rr.expected_cost_amount FROM shipping_rate_rules rr
-                 WHERE (rr.carrier_pattern IS NULL
-                         OR lower(coalesce(f.tracking_company,'')) LIKE '%' || lower(rr.carrier_pattern) || '%')
-                   AND (rr.country_code IS NULL OR rr.country_code = om.country)
-                   -- Must stay identical to order-profit.ts's rate_est.
-                   AND (rr.exclude_country_code IS NULL
-                         OR rr.exclude_country_code <> COALESCE(om.country, ''))
-                   AND (rr.zone IS NULL OR rr.zone = om.zone)
-                   AND rr.effective_date <= COALESCE(f.shipped_at::date, om.d)
-                 ORDER BY rr.priority DESC, rr.effective_date DESC LIMIT 1)) AS ship_rate
+           sum(${expectedRateCentsSql({
+             fulfilment: "f",
+             country: sql`om.country`,
+             zone: sql`om.zone`,
+             effectiveOn: sql`COALESCE(f.shipped_at::date, om.d)`,
+           })}) AS ship_rate
       FROM fulfillments f JOIN ord_mkt om ON om.id = f.order_id
      GROUP BY f.order_id
   ),

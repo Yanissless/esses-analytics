@@ -22,6 +22,7 @@
 import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { db } from "../../db/client";
 import { fulfillments, shippingCharges, shippingInvoices } from "../../db/schema";
+import { expectedRateCentsSql, zoneFromCountrySql } from "./rate-rules";
 
 /** Strip formatting so "1Z K414 4668" matches "1zk4144668". */
 export function normalizeTracking(raw: string | null | undefined): string | null {
@@ -135,26 +136,22 @@ export async function attachItemisedCharges(
  * matching rule effective at the ship date. Returns null when nothing matches.
  */
 export async function expectedRateCents(fulfillmentId: string): Promise<number | null> {
+  const country = sql`COALESCE(o.shipping_country, o.billing_country)`;
   const [r] = (await db.execute(sql`
-    SELECT rr.expected_cost_amount AS cents
+    SELECT ${expectedRateCentsSql({
+      fulfilment: "f",
+      country,
+      // This query has no zone column of its own; resolving it from market_config is
+      // what stops a zone-scoped rule (e.g. "International (any carrier)", zone 'row')
+      // from matching a US shipment — which it previously could.
+      zone: zoneFromCountrySql(country),
+      effectiveOn: sql`COALESCE(f.shipped_at::date, CURRENT_DATE)`,
+    })} AS cents
       FROM fulfillments f
       JOIN orders o ON o.id = f.order_id
-      JOIN shipping_rate_rules rr
-        ON (rr.carrier_pattern IS NULL
-             OR lower(coalesce(f.tracking_company,'')) LIKE '%' || lower(rr.carrier_pattern) || '%')
-       AND (rr.service_pattern IS NULL
-             OR lower(coalesce(f.service_name,'')) LIKE '%' || lower(rr.service_pattern) || '%')
-       AND (rr.country_code IS NULL
-             OR rr.country_code = COALESCE(o.shipping_country, o.billing_country))
-       AND (rr.exclude_country_code IS NULL
-             OR rr.exclude_country_code
-                <> COALESCE(o.shipping_country, o.billing_country, ''))
-       AND rr.effective_date <= COALESCE(f.shipped_at::date, CURRENT_DATE)
      WHERE f.id = ${fulfillmentId}
-     ORDER BY rr.priority DESC, rr.effective_date DESC
-     LIMIT 1
-  `)) as unknown as Array<{ cents: number }>;
-  return r ? Number(r.cents) : null;
+  `)) as unknown as Array<{ cents: number | null }>;
+  return r?.cents == null ? null : Number(r.cents);
 }
 
 export interface BatchCriteria {
@@ -228,20 +225,12 @@ export async function allocateBatchInvoice(
   const rows = (await db.execute(sql`
     SELECT f.id, f.order_id, f.tracking_number, f.shipped_at::date AS shipped_on,
            COALESCE(f.total_quantity, 1) AS units,
-           (SELECT rr.expected_cost_amount
-              FROM shipping_rate_rules rr
-             WHERE (rr.carrier_pattern IS NULL
-                     OR lower(coalesce(f.tracking_company,'')) LIKE '%' || lower(rr.carrier_pattern) || '%')
-               AND (rr.service_pattern IS NULL
-                     OR lower(coalesce(f.service_name,'')) LIKE '%' || lower(rr.service_pattern) || '%')
-               AND (rr.country_code IS NULL
-                     OR rr.country_code = COALESCE(o.shipping_country, o.billing_country))
-               AND (rr.exclude_country_code IS NULL
-                     OR rr.exclude_country_code
-                        <> COALESCE(o.shipping_country, o.billing_country, ''))
-               AND rr.effective_date <= COALESCE(f.shipped_at::date, CURRENT_DATE)
-             ORDER BY rr.priority DESC, rr.effective_date DESC
-             LIMIT 1) AS expected_rate
+           ${expectedRateCentsSql({
+             fulfilment: "f",
+             country: sql`COALESCE(o.shipping_country, o.billing_country)`,
+             zone: zoneFromCountrySql(sql`COALESCE(o.shipping_country, o.billing_country)`),
+             effectiveOn: sql`COALESCE(f.shipped_at::date, CURRENT_DATE)`,
+           })} AS expected_rate
       FROM fulfillments f
       JOIN orders o ON o.id = f.order_id
      WHERE f.shipped_at::date >= ${criteria.periodStart}
