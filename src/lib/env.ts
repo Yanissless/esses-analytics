@@ -31,6 +31,15 @@ const envSchema = z.object({
   // ---- Seed (used only by scripts/seed.ts) -----------------------------
   SEED_ADMIN_PASSWORD: z.string().optional(),
 
+  /**
+   * Shared secret guarding POST /api/sync, so a scheduler can trigger the incremental
+   * sync without a user session. Optional here, but the route refuses EVERY request
+   * when it's unset rather than running unauthenticated — a deployment that forgets it
+   * fails closed. Min length matches AUTH_SECRET's reasoning: this endpoint can trigger
+   * real third-party API spend.
+   */
+  CRON_SECRET: z.string().min(32).optional(),
+
   // ---- Connectors (optional in Phase 1; wired up in later phases) ------
   // Shopify Admin API.
   // SHOPIFY_SHOP must be the store's myshopifyDomain (e.g. 9fee88-ec.myshopify.com),

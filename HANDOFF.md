@@ -3,12 +3,17 @@
 **Last updated:** 2026-08-06 (session 8)
 **Project root:** `C:\Users\samwi\esses-analytics`
 **Status:** Phases 1–9 built. Marketing/reconciliation, Churn & cohorts, Social,
-Personas and **Forecast & goals**, with a live margin-boundary setting and COGS
-sensitivity/coverage. 205 tests pass, typecheck + **lint** + build clean, all 14 routes
+Personas and Forecast & goals, with a live margin-boundary setting and COGS
+sensitivity/coverage. 205 tests pass, typecheck + lint + build clean, all 17 routes
 render against live data. Git baseline exists (§4.9).
 
-**Every major dashboard from the brief now exists.** What's left: the phase-10
-validation pass, phase-11 advertiser reporting, and AI insights + the Slack digest.
+**Every major dashboard from the brief now exists**, and the app is
+**deployment-ready** — team management, a scheduled-sync endpoint and `DEPLOY.md` all
+landed in session 8 (§4.16). What's left: the phase-10 validation pass, phase-11
+advertiser reporting, and AI insights + the Slack digest.
+
+📄 **To put a live instance up, follow `DEPLOY.md`.** Nothing in it needs a code change —
+it needs a managed Postgres, a Vercel project, DNS, and the secrets pasted in.
 
 ⚠️ **Read §5.2 before touching Meta.** Access is blocked at the APP level — a new
 token will not fix it. Sam is working on the unblock.
@@ -98,8 +103,9 @@ so a new route needs no allowlist entry.
 
 ### Pages (all behind auth)
 `/` Overview · `/profit` · `/marketing` · `/social` · `/customers` (LTV/cohorts) ·
-`/churn` · `/personas` · **`/forecast`** (new) · `/international` · `/costs` ·
-`/shipping` · `/login` · `/api/health`
+`/churn` · `/personas` · `/forecast` · `/international` · `/costs` · `/shipping` ·
+**`/team`** (admin) · **`/account`** (all) · `/login` · `/api/health` ·
+**`/api/sync`** (shared-secret, for cron)
 
 ### Architecture notes worth knowing
 - **`order_profit` is the materialised single source of per-order costed margin**
@@ -561,6 +567,51 @@ pages (from the baseline commit). That generates a fresh key every render, remou
 the row and defeating reconciliation — React's compiler lint flags it as an impure call
 during render, and it was failing `run.cmd lint`. Now uses the array index. **`lint` is
 down to 0 errors** (5 unused-import warnings remain elsewhere).
+
+### 4.16 ✅ Built — team management, own-password change, and deployment readiness
+
+The actual blocker for "let the team review it" wasn't a dashboard — it was that **users
+could only be created by a CLI script with hardcoded emails and a shared
+`SEED_ADMIN_PASSWORD`.** Not viable for a team.
+
+- **`/team`** (admin) — add a teammate (returns a one-time password, shown once, since
+  no mail is configured), promote/demote, deactivate/reactivate, reset someone's password
+- **`/account`** (everyone) — change your own password, requiring the current one.
+  Separate page because `/team` is admin-only, and a viewer handed a temp password must
+  still be able to change it or the temporary credential becomes permanent.
+- Guards: can't demote or deactivate **yourself**, and the **last active admin is
+  protected** — both are direct routes to locking everyone out of the settings.
+
+⚠️ **`requireUser()` now hits the database on every page render** to re-check
+`is_active` and re-read `role`. Sessions are stateless 7-day JWTs, so without this,
+revoking access would leave someone signed in for up to a week, and a demotion wouldn't
+take effect until their cookie expired. One PK lookup is negligible beside the analytics
+queries these pages already run. `/login?revoked=1` explains the sign-out rather than
+appearing random.
+
+**Deployment:**
+- `src/lib/sync/run-sync.ts` — the incremental-sync orchestration, extracted from
+  `scripts/sync.ts` so the CLI and the scheduled route run *identical* code rather than
+  becoming the fourth copy-paste-then-drift bug in this codebase.
+- **`POST /api/sync`** — guarded by a shared `CRON_SECRET` (constant-time compare;
+  accepts Vercel's `Authorization: Bearer` or `x-cron-secret`). **Fails closed:** with
+  the secret unset it refuses *every* request, so a deployment that forgets it can't
+  leave an unauthenticated endpoint that spends money on third-party APIs. Returns 207
+  when some sources failed but the run did useful work.
+- `vercel.json` schedules it daily at 06:00 UTC.
+- **`DEPLOY.md`** — the full runbook.
+
+⚠️ **Backfills must stay local.** A Shopify backfill walks ~170 sequential pages over
+about ten minutes, exceeding the function timeout on every plan worth using. `DEPLOY.md`
+covers running it from a machine against the production `DATABASE_URL`. Only the
+incremental sync is automated.
+
+⚠️ `/api/sync` is in `proxy.ts`'s `PUBLIC_PATHS` — **not because it's public**, but
+because a scheduler has no session to present; the route does its own auth.
+
+Verified: 503 with no secret, 401 with a wrong one, and authorisation passing under both
+header forms (proven with an invalid `?source=` so the check ran without triggering a
+live sync).
 
 ### 4.5 Hardened Shopify network retry
 
@@ -1057,7 +1108,7 @@ Re-run these first to confirm nothing drifted:
 C:\Users\samwi\esses-analytics\run.cmd test        # expect: 18 files, 205 tests pass
 C:\Users\samwi\esses-analytics\run.cmd exec tsc --noEmit   # expect: silent
 C:\Users\samwi\esses-analytics\run.cmd lint       # expect: 0 errors (5 unused-import warnings)
-C:\Users\samwi\esses-analytics\run.cmd build      # expect: 14 routes, clean
+C:\Users\samwi\esses-analytics\run.cmd build      # expect: 17 routes, clean
 C:\Users\samwi\esses-analytics\run.cmd metrics    # expect: 8,130 orders, MER 5.16
 ```
 
@@ -1069,11 +1120,13 @@ shared modules. **`lint` catches things neither does** (impure calls during rend
 stale one silently under-reports `/international` — see the correction in §4.11.
 
 Verified passing at handoff time (2026-08-06, session 8): **205/205 tests**, typecheck
-silent, lint 0 errors, build clean (14 routes), all pages rendering 200 against live
+silent, lint 0 errors, build clean (17 routes), all pages rendering 200 against live
 data — `/marketing` under every model/basis combination, `/churn` under all six cohort
 dimensions **and with the plan filter applied**, `/social`, `/personas`, `/forecast`,
-and `/costs` with the boundary form. The boundary was set to each of its three values
-and read back, with `/profit` and `/international` agreeing to the cent each time.
+`/team`, `/account`, and `/costs` with the boundary form. The boundary was set to each of
+its three values and read back, with `/profit` and `/international` agreeing to the cent
+each time. `/api/sync` verified to return 503 unconfigured, 401 on a wrong secret, and to
+authorise under both header forms.
 
 Headline numbers as of handoff — quote these with their caveats, not bare:
 - Revenue (net, Shopify paid ex-VAT + Stripe): **$152,204**

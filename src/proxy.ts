@@ -8,7 +8,15 @@ import { SESSION_COOKIE, verifySession } from "@/lib/auth/session";
  *
  * (Next 16 renamed the `middleware` convention to `proxy`; same behaviour.)
  */
-const PUBLIC_PATHS = ["/login", "/api/health"];
+/**
+ * Paths the session wall does NOT guard.
+ *
+ * `/api/sync` is not public — it authenticates with a shared secret instead of a
+ * session, because a scheduler has no user to log in as. It's listed here so the proxy
+ * doesn't redirect the scheduler to /login; the route itself refuses any request without
+ * a valid `CRON_SECRET`, and refuses every request when that secret is unset.
+ */
+const PUBLIC_PATHS = ["/login", "/api/health", "/api/sync"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some(

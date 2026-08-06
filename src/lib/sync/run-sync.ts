@@ -1,0 +1,138 @@
+/**
+ * The incremental-sync orchestration, shared by the `sync` CLI and the cron API route.
+ *
+ * Extracted from `scripts/sync.ts` so a scheduled deployment and a developer's terminal
+ * run exactly the same code. Duplicating it would have been the fourth instance of the
+ * copy-paste-then-drift pattern this codebase has already been bitten by twice
+ * (`revenue_class`, the rate-rule predicate).
+ */
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "../../db/client";
+import { syncRuns } from "../../db/schema";
+import { connectorConfigured } from "../env";
+import { logger } from "../logger";
+import { withSyncRun } from "./sync-run";
+import { shopifyConnector } from "../../connectors/shopify";
+import { skioConnector } from "../../connectors/skio";
+import { stripeConnector } from "../../connectors/stripe";
+import { AD_PLATFORMS, asConnector } from "../../connectors/ads";
+import { rebuildDailyMetrics } from "../../metrics/rollup";
+import type { Connector } from "../../connectors/types";
+
+export const ALL_SYNC_SOURCES = ["shopify", "skio", "stripe", "ads"] as const;
+
+export interface SourceResult {
+  source: string;
+  ok: boolean;
+  rows?: number;
+  error?: string;
+  skipped?: boolean;
+}
+
+export interface SyncSummary {
+  results: SourceResult[];
+  metricsDays: number | null;
+  failed: string[];
+  ok: boolean;
+  ms: number;
+}
+
+async function lastCursor(source: string): Promise<string | undefined> {
+  const [row] = await db
+    .select({ cursor: syncRuns.cursor })
+    .from(syncRuns)
+    .where(and(eq(syncRuns.source, source), eq(syncRuns.status, "success")))
+    .orderBy(desc(syncRuns.finishedAt))
+    .limit(1);
+  return row?.cursor ?? undefined;
+}
+
+/**
+ * Run one source. Failures are CONTAINED: a network blip on one platform must not stop
+ * the others — an early version aborted the whole script when Skio dropped a connection,
+ * so Stripe never ran. The failure is still recorded by withSyncRun and alerted on.
+ */
+async function runIncremental(
+  connector: Connector,
+  configured: boolean,
+): Promise<SourceResult> {
+  if (!configured) {
+    logger.warn(`${connector.source} not configured — skipping`);
+    return { source: connector.source, ok: true, rows: 0, skipped: true };
+  }
+  const cursor = await lastCursor(connector.source);
+  try {
+    const r = await withSyncRun(connector.source, "incremental", () =>
+      connector.incrementalSync(cursor),
+    );
+    logger.info(`${connector.source} sync done`, {
+      rows: r.rowsUpserted,
+      since: cursor ?? "24h",
+    });
+    return { source: connector.source, ok: true, rows: r.rowsUpserted };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    logger.error(`${connector.source} sync failed — continuing with other sources`, { error });
+    return { source: connector.source, ok: false, error };
+  }
+}
+
+/**
+ * Sync the requested sources, then refresh the rollup.
+ *
+ * The rollup runs LAST and runs even when a source failed: partial-but-current beats
+ * stale. It also must run at all — `order_profit` is materialised, and skipping the
+ * rebuild after new orders land makes `/international` silently under-report.
+ */
+export async function runSync(
+  opts: { sources?: string[]; skipMetrics?: boolean } = {},
+): Promise<SyncSummary> {
+  const started = Date.now();
+  const sources = opts.sources?.length ? opts.sources : [...ALL_SYNC_SOURCES];
+  const results: SourceResult[] = [];
+
+  if (sources.includes("shopify")) {
+    results.push(await runIncremental(shopifyConnector, connectorConfigured.shopify()));
+  }
+  if (sources.includes("skio")) {
+    results.push(await runIncremental(skioConnector, connectorConfigured.skio()));
+  }
+  if (sources.includes("stripe")) {
+    results.push(await runIncremental(stripeConnector, connectorConfigured.stripe()));
+  }
+  // Ad platforms come from the registry, so a new one needs no change here.
+  for (const p of AD_PLATFORMS) {
+    if (!sources.includes(p.platform) && !sources.includes("ads")) continue;
+    results.push(await runIncremental(asConnector(p), p.isConfigured()));
+  }
+
+  let metricsDays: number | null = null;
+  if (!opts.skipMetrics) {
+    try {
+      const m = await rebuildDailyMetrics();
+      metricsDays = m.daysComputed;
+      logger.info("Metrics rollup refreshed", { days: m.daysComputed });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      logger.error("Metrics rollup failed", { error });
+      results.push({ source: "metrics", ok: false, error });
+    }
+  }
+
+  const failed = results.filter((r) => !r.ok).map((r) => r.source);
+  const summary: SyncSummary = {
+    results,
+    metricsDays,
+    failed,
+    ok: failed.length === 0,
+    ms: Date.now() - started,
+  };
+
+  logger.info("Sync complete", {
+    ok: results.filter((r) => r.ok).map((r) => `${r.source}:${r.rows ?? 0}`),
+    failed,
+    ms: summary.ms,
+  });
+
+  return summary;
+}

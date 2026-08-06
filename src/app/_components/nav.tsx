@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/international", label: "International margin" },
   { href: "/costs", label: "Costs", adminOnly: true },
   { href: "/shipping", label: "Shipping", adminOnly: true },
+  { href: "/team", label: "Team", adminOnly: true },
 ];
 
 export function Nav({ email, role }: { email: string; role: string }) {
@@ -36,13 +37,18 @@ export function Nav({ email, role }: { email: string; role: string }) {
           </nav>
         </div>
         <div className="flex items-center gap-3">
-          <div className="text-right">
+          {/* The account link lives here rather than in the main nav: everyone needs it,
+              but it isn't a dashboard. */}
+          <Link href="/account" className="text-right hover:opacity-80">
             <div className="text-sm text-neutral-700 dark:text-neutral-300">{email}</div>
             <div className="text-[11px] uppercase tracking-wide text-neutral-400">{role}</div>
-          </div>
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-900 text-sm font-medium text-white dark:bg-neutral-100 dark:text-neutral-900">
+          </Link>
+          <Link
+            href="/account"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-900 text-sm font-medium text-white transition hover:opacity-90 dark:bg-neutral-100 dark:text-neutral-900"
+          >
             {initial}
-          </div>
+          </Link>
           <form action={logout}>
             <button
               type="submit"

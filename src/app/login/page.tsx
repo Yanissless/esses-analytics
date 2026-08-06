@@ -1,9 +1,28 @@
 "use client";
 
-import { useActionState } from "react";
+import { Suspense, useActionState } from "react";
+import { useSearchParams } from "next/navigation";
 import { login, type LoginState } from "./actions";
 
 const initialState: LoginState = {};
+
+/**
+ * `requireUser()` redirects here with `?revoked=1` when an account was deactivated
+ * mid-session, so the person gets an explanation rather than an apparently random
+ * sign-out.
+ *
+ * Isolated into its own component because `useSearchParams()` opts its subtree out of
+ * static rendering and Next requires a Suspense boundary around it. Keeping it tiny
+ * means the rest of the login page still prerenders.
+ */
+function RevokedNotice() {
+  if (useSearchParams().get("revoked") !== "1") return null;
+  return (
+    <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      Your access has been withdrawn. Ask an admin if you think that&rsquo;s a mistake.
+    </div>
+  );
+}
 
 export default function LoginPage() {
   const [state, formAction, pending] = useActionState(login, initialState);
@@ -17,6 +36,10 @@ export default function LoginPage() {
           </h1>
           <p className="mt-1 text-sm text-neutral-500">Internal — sign in to continue</p>
         </div>
+
+        <Suspense fallback={null}>
+          <RevokedNotice />
+        </Suspense>
 
         <form
           action={formAction}
