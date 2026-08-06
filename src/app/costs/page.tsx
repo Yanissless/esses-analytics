@@ -3,8 +3,15 @@ import { db } from "@/db/client";
 import { costAssumptions, productCosts } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth/current-user";
 import { getSkuCostRows } from "@/metrics/cogs";
+import {
+  getCogsCoverage,
+  getCogsCoverageSummary,
+  getCogsSensitivity,
+} from "@/metrics/cogs-scenario";
+import { getRevenueSummary } from "@/metrics/overview";
+import { BOUNDARY_META } from "@/metrics/margin-boundary";
 import { getMarginBoundary } from "@/metrics/margin-boundary.server";
-import { Badge, Card, formatNum, formatUsd } from "../_components/ui";
+import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 import { CostForms, MarginBoundaryForm } from "./forms";
 
@@ -12,11 +19,21 @@ export const dynamic = "force-dynamic";
 
 export default async function CostsPage() {
   const user = await requireAdmin();
-  const [skus, costs, zones, marginBoundary] = await Promise.all([
+  // Boundary and window first: the sensitivity table depends on both.
+  const [marginBoundary, revenue] = await Promise.all([
+    getMarginBoundary(),
+    getRevenueSummary(),
+  ]);
+  const since = revenue.firstOrderDate ?? "2025-10-01";
+  const until = revenue.lastOrderDate ?? new Date().toISOString().slice(0, 10);
+
+  const [skus, costs, zones, coverage, coverageRows, sensitivity] = await Promise.all([
     getSkuCostRows(),
     db.select().from(productCosts).orderBy(desc(productCosts.effectiveDate)).limit(100),
     db.select().from(costAssumptions).orderBy(desc(costAssumptions.effectiveDate)),
-    getMarginBoundary(),
+    getCogsCoverageSummary(),
+    getCogsCoverage(20),
+    getCogsSensitivity(since, until, marginBoundary),
   ]);
 
   const csvExport = [
@@ -114,7 +131,180 @@ export default async function CostsPage() {
           </div>
         </Card>
 
+        {/* ---- how much a copy can cost, and what it costs today ---- */}
+        <Card
+          title="What can a copy afford to cost?"
+          subtitle={`Margin recomputed at each per-unit print cost, holding shipping, packaging, processing and ad spend exactly as recorded · ${BOUNDARY_META[marginBoundary].label}`}
+        >
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat
+              label="Breakeven per copy"
+              value={
+                sensitivity.breakevenPerUnitCents == null
+                  ? "—"
+                  : formatUsd(sensitivity.breakevenPerUnitCents)
+              }
+              hint="print cost where CM3 reaches zero"
+              emphasis
+            />
+            <Stat
+              label="Effective cost today"
+              value={
+                sensitivity.actualPerUnitCents == null
+                  ? "—"
+                  : formatUsd(sensitivity.actualPerUnitCents)
+              }
+              hint={`${formatUsd(sensitivity.actualCogsCents)} over ${formatNum(sensitivity.units)} units`}
+            />
+            <Stat
+              label="Cost coverage"
+              value={
+                coverage.coveragePct == null
+                  ? "—"
+                  : `${(coverage.coveragePct * 100).toFixed(1)}%`
+              }
+              hint={`${formatNum(coverage.exposedUnits)} of ${formatNum(coverage.totalUnits)} units have no cost`}
+            />
+            <Stat
+              label="Distinct costs in force"
+              value={formatNum(coverage.distinctCostValues)}
+              hint={
+                coverage.distinctCostValues <= 1
+                  ? "one flat rate — COGS does not vary yet"
+                  : "COGS varies by product"
+              }
+            />
+          </div>
+
+          {/* The single most important caveat on this page. */}
+          {sensitivity.actualPerUnitCents != null && coverage.exposedUnits > 0 ? (
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              <strong>
+                The effective cost ({formatUsd(sensitivity.actualPerUnitCents)}) is lower than the
+                $11.48 placeholder, and that is not good news.
+              </strong>{" "}
+              {formatNum(coverage.exposedUnits)} units carry no cost record at all, so they are
+              costed at <strong>$0</strong> and drag the average down. Margin everywhere in this app
+              is therefore <em>optimistic</em> by roughly the value of those units. Setting the costs
+              in the table below will make the reported numbers worse and more correct.
+            </div>
+          ) : null}
+
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
+                  <th className="pb-2 font-medium">Cost per copy</th>
+                  <th className="pb-2 text-right font-medium">COGS total</th>
+                  <th className="pb-2 text-right font-medium">CM1</th>
+                  <th className="pb-2 text-right font-medium">CM2</th>
+                  <th className="pb-2 text-right font-medium">CM3</th>
+                  <th className="pb-2 text-right font-medium">CM3 %</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                {sensitivity.scenarios.map((s) => {
+                  const viable = s.cm3Cents >= 0;
+                  return (
+                    <tr
+                      key={s.perUnitCents}
+                      className={s.isCurrent ? "bg-neutral-100/70 dark:bg-neutral-800/50" : ""}
+                    >
+                      <td className="py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium tabular-nums">{s.label}</span>
+                          {s.isCurrent ? <Badge tone="blue">current</Badge> : null}
+                          {s.perUnitCents === 550 ? (
+                            <Badge tone="neutral">older calculators</Badge>
+                          ) : null}
+                          {s.perUnitCents === 1148 ? (
+                            <Badge tone="amber">May 2026 sheet</Badge>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="py-2 text-right tabular-nums">{formatUsd(s.cogsCents)}</td>
+                      <td className="py-2 text-right tabular-nums">{formatUsd(s.cm1Cents)}</td>
+                      <td className="py-2 text-right tabular-nums">{formatUsd(s.cm2Cents)}</td>
+                      <td
+                        className={`py-2 text-right font-medium tabular-nums ${
+                          viable
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-red-600 dark:text-red-400"
+                        }`}
+                      >
+                        {formatUsd(s.cm3Cents)}
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        {s.cm3Pct == null ? "—" : `${(s.cm3Pct * 100).toFixed(1)}%`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
+            <strong>Nothing here is saved</strong> — it&rsquo;s a what-if. Committing a real cost is
+            the effective-dated edit further down, so a scenario can never quietly become the
+            recorded truth. The breakeven moves sharply with the margin boundary above: counting only
+            paid orders leaves far more headroom per copy than also counting the deliveries those
+            subscriptions fund, and the second is the harder question.
+          </p>
+        </Card>
+
         <MarginBoundaryForm current={marginBoundary} />
+
+        {/* ---- the work queue for costing products ---- */}
+        <Card
+          title="Products with no cost"
+          subtitle="Ordered by units exposed, so the top row removes more uncertainty than the rest combined"
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
+                  <th className="pb-2 font-medium">Product</th>
+                  <th className="pb-2 font-medium">Cost key</th>
+                  <th className="pb-2 text-right font-medium">Units sold</th>
+                  <th className="pb-2 text-right font-medium">Units uncosted</th>
+                  <th className="pb-2 text-right font-medium">Cost set</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                {coverageRows
+                  .filter((c) => c.exposedUnits > 0)
+                  .map((c) => (
+                    <tr key={c.sku}>
+                      <td className="py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{c.title ?? "(untitled)"}</span>
+                          {c.issueNumber ? (
+                            <Badge tone="neutral">issue {c.issueNumber}</Badge>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="py-2 font-mono text-[11px] text-neutral-500">{c.sku}</td>
+                      <td className="py-2 text-right tabular-nums">{formatNum(c.units)}</td>
+                      <td className="py-2 text-right font-medium tabular-nums text-amber-600 dark:text-amber-400">
+                        {formatNum(c.exposedUnits)}
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        {c.costCents == null ? "—" : formatUsd(c.costCents)}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
+            Copy the <strong>cost key</strong> into the form below to set a cost. Keys beginning{" "}
+            <code className="font-mono">variant:</code> are products with no SKU in Shopify — the
+            resolver honours that synthetic key exactly like a real SKU, so they cost the same way.
+            Because costs are effective-dated, a print run that gets cheaper only changes margin from
+            that date forward; history keeps the cost that was true at the time.
+          </p>
+        </Card>
 
         <CostForms
           zones={zones.map((z) => ({

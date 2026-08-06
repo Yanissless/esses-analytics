@@ -3,8 +3,9 @@
 **Last updated:** 2026-08-04 (session 7)
 **Project root:** `C:\Users\samwi\esses-analytics`
 **Status:** Phases 1–8b built, plus Marketing/reconciliation, Churn & cohorts, Social
-and Personas, with a live margin-boundary setting. 180 tests pass, typecheck + build
-clean, all 13 routes render against live data. Git baseline exists (§4.9).
+and Personas, with a live margin-boundary setting and COGS sensitivity/coverage.
+189 tests pass, typecheck + build clean, all 13 routes render against live data.
+Git baseline exists (§4.9).
 
 ⚠️ **Read §5.2 before touching Meta.** Access is blocked at the APP level — a new
 token will not fix it. Sam is working on the unblock.
@@ -567,6 +568,59 @@ API would repeat it. The moment the app is unblocked, build it token-first: prob
 `/me/accounts` → IG business account id → `/{ig-id}/insights` and confirm the metric
 names before mapping anything.
 
+### 5.3a ✅ Built — COGS coverage + sensitivity (`src/metrics/cogs-scenario.ts`)
+
+Sam's ask: make COGS a variable setting, since it changes per magazine and as
+logistics/packing improve. **The data model already supported that** —
+`product_costs` is keyed `(sku, origin, effective_date)` and `/costs` accepts both
+real SKUs and synthetic `variant:<uuid>` keys — so nothing new was needed to *vary*
+cost. What was missing was knowing what a change is worth, and being able to model it
+before committing. Both now on `/costs`:
+
+- `getCogsSensitivity()` — CM1/CM2/CM3 at a range of per-unit costs, holding shipping,
+  packaging, processing and ad spend exactly as recorded
+- `breakevenCogsPerUnitCents()` — the per-unit cost where CM3 hits zero. Pure and
+  tested; **can legitimately return a negative number**, meaning other costs already
+  exceed revenue and no print price would help. Reported honestly rather than clamped.
+- `getCogsCoverage()` / `getCogsCoverageSummary()` — which products carry a cost, and
+  units exposed, ordered so the list is a work queue
+
+Scenarios are **ephemeral by design** — they never write to `product_costs`.
+Committing a real cost stays the effective-dated edit, so a what-if can't quietly
+become the recorded truth.
+
+**🔴 The finding that matters most, and it changes the COGS question entirely.**
+Breakeven per copy swings enormously with the margin boundary:
+
+| Boundary | units | breakeven / copy | effective today |
+|---|---|---|---|
+| Paid orders only | 3,542 | **$24.64** | $9.07 |
+| Paid + prepaid deliveries | 9,500 | **$5.11** | $9.75 |
+| Everything, incl. comps | 10,960 | **$3.50** | $8.94 |
+
+So: counting only paid orders, Esses could afford $24.64 a copy and the $11.48
+placeholder is comfortable. Counting the deliveries those subscriptions actually fund,
+**the ceiling is $5.11 and we're paying about $9.75** — the older ~$5.50 figure is
+roughly breakeven and $11.48 is far underwater. **The print-cost question is only
+alarming at the honest boundary**, which is exactly why §5.1's toggle and this table
+belong together.
+
+⚠️ **And the effective cost is currently UNDERSTATED, which flatters everything.**
+Coverage is **77.9%**: 2,422 of 10,960 units have no cost record, so they're costed at
+**$0** and drag the blended rate down to $9.07 rather than $11.48. Margin everywhere in
+this app is optimistic by roughly the value of those units. Setting them will make the
+numbers worse and more correct. Biggest exposures: Issue 03 (Pre-order) **790 units**,
+Issue 05 Contributor Copy 270, Navy Corduroy Cap 208, Issue 06 Contributor Copy 171,
+Square Guide to Austin 147.
+
+⚠️ **COGS does not actually vary yet:** `distinctCostValues` is **1**. Only 6 SKUs are
+costed (ME2–ME5, SUB, Subscription), all at $11.48, and only **5 of 76 products** are
+fully covered. Per-issue costing is structurally available and practically empty —
+Issue 01 and 06 have zero costed SKUs, Issue 03 has 1 of 7. Also note the SKU→issue
+mapping is not clean (`ME4`'s dominant title is "Esses Issue 05"), so per-issue COGS
+should be set against the specific cost keys in the work queue, not assumed from SKU
+names.
+
 ### 5.3 The COGS placeholder dominates everything — **still needs Sam**
 
 `$11.48/issue` is an unverified placeholder from the May 2026 international sheet.
@@ -840,7 +894,7 @@ that token unblocks two things at once.
 Re-run these first to confirm nothing drifted:
 
 ```bash
-C:\Users\samwi\esses-analytics\run.cmd test        # expect: 16 files, 180 tests pass
+C:\Users\samwi\esses-analytics\run.cmd test        # expect: 17 files, 189 tests pass
 C:\Users\samwi\esses-analytics\run.cmd exec tsc --noEmit   # expect: silent
 C:\Users\samwi\esses-analytics\run.cmd build      # expect: 13 routes, clean
 C:\Users\samwi\esses-analytics\run.cmd metrics    # expect: 304 days, MER 5.15
@@ -850,7 +904,7 @@ C:\Users\samwi\esses-analytics\run.cmd metrics    # expect: 304 days, MER 5.15
 module — only `build` does (§6). Run build before trusting a change that touches
 shared modules.
 
-Verified passing at handoff time (2026-08-04, session 7): **180/180 tests**, typecheck
+Verified passing at handoff time (2026-08-04, session 7): **189/189 tests**, typecheck
 silent, build clean (13 routes), all pages rendering 200 against live data —
 `/marketing` under every model/basis combination, `/churn` under every one of the six
 cohort dimensions, `/social`, `/personas`, and `/costs` with the boundary form. The
