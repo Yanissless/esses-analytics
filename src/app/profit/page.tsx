@@ -267,8 +267,10 @@ export default async function ProfitPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                {worst.map((o) => (
-                  <tr key={o.orderNumber ?? Math.random().toString()}>
+                {/* See the note on the Overview page: Math.random() as a key remounts
+                    the row every render. */}
+                {worst.map((o, i) => (
+                  <tr key={o.orderNumber ?? `order-${i}`}>
                     <td className="py-2">
                       <div className="font-medium">{o.orderNumber ?? "—"}</div>
                       <div className="text-xs text-neutral-500">{o.processedAt}</div>

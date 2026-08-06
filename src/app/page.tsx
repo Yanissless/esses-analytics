@@ -218,8 +218,10 @@ export default async function Overview() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                {topCustomers.map((c) => (
-                  <tr key={(c.email ?? c.name) ?? Math.random().toString()}>
+                {/* Index as the last-resort key. Math.random() here produced a fresh key
+                    on every render, remounting the row and defeating reconciliation. */}
+                {topCustomers.map((c, i) => (
+                  <tr key={c.email ?? c.name ?? `customer-${i}`}>
                     <td className="py-2">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{c.name ?? "(no name)"}</span>

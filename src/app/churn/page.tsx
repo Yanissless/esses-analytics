@@ -45,21 +45,38 @@ function isDimension(v: string | undefined): v is ChurnDimension {
 export default async function ChurnPage({
   searchParams,
 }: {
-  searchParams: Promise<{ dim?: string }>;
+  searchParams: Promise<{ dim?: string; plan?: string }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
   const dimension: ChurnDimension = isDimension(params.dim) ? params.dim : "issue_at_signup";
 
-  const [cohorts, plans, issues] = await Promise.all([
-    getChurnCohorts(dimension, { minSubscriptions: 5 }),
-    getPlanCadences(),
+  const plans = await getPlanCadences();
+  /*
+   * Holding the plan constant matters for any dimension that correlates with time.
+   * A renewal is 3 months on one plan and 12 on another, so two issue cohorts with
+   * different plan mixes are being measured at different points in their lifecycle —
+   * and the mixes here are wildly different (Issue 04 is 57% annual, Issue 05 is 30%).
+   * The blended view is still the default because it's the whole business; this filter
+   * is how you check whether a gap is real or just cadence.
+   */
+  const selectedPlan = plans.find(
+    (p) => `${p.planName}|${p.cycleMonths}` === params.plan && p.subscriptions >= 25,
+  );
+
+  const [cohorts, issues] = await Promise.all([
+    getChurnCohorts(dimension, {
+      minSubscriptions: 5,
+      planName: selectedPlan?.planName,
+      cycleMonths: selectedPlan?.cycleMonths ?? undefined,
+    }),
     getIssueWindows(),
   ]);
+  const planChoices = plans.filter((p) => p.subscriptions >= 25 && p.cycleMonths);
 
   // Renewal-cycle churn is computed per plan, because a "first renewal" is 3 months
   // for one plan and 12 for another — blending them produces a meaningless average.
-  const bigPlans = plans.filter((p) => p.subscriptions >= 25 && p.cycleMonths);
+  const bigPlans = planChoices;
   const perPlanCycles = await Promise.all(
     bigPlans.map(async (p) => ({
       plan: p,
@@ -85,7 +102,10 @@ export default async function ChurnPage({
     .filter((c) => c.churnByFirstRenewalPct != null && c.matureSubscriptions >= 30)
     .sort((a, b) => (a.churnByFirstRenewalPct ?? 1) - (b.churnByFirstRenewalPct ?? 1))[0];
 
-  const href = (d: ChurnDimension) => `/churn?dim=${d}`;
+  const href = (d: ChurnDimension) =>
+    `/churn?dim=${d}${params.plan ? `&plan=${encodeURIComponent(params.plan)}` : ""}`;
+  const planHref = (key: string | null) =>
+    `/churn?dim=${dimension}${key ? `&plan=${encodeURIComponent(key)}` : ""}`;
   const active = DIMENSIONS.find((d) => d.id === dimension);
 
   return (
@@ -247,7 +267,55 @@ export default async function ChurnPage({
                 </Link>
               ))}
             </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">{active?.blurb}.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase tracking-wide text-neutral-500">Plan</span>
+              <Link
+                href={planHref(null)}
+                className={`rounded-lg px-2.5 py-1 text-xs transition ${
+                  !selectedPlan
+                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                }`}
+              >
+                All plans
+              </Link>
+              {planChoices.map((p) => {
+                const key = `${p.planName}|${p.cycleMonths}`;
+                const on = selectedPlan
+                  ? selectedPlan.planName === p.planName &&
+                    selectedPlan.cycleMonths === p.cycleMonths
+                  : false;
+                return (
+                  <Link
+                    key={key}
+                    href={planHref(key)}
+                    className={`rounded-lg px-2.5 py-1 text-xs transition ${
+                      on
+                        ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                        : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                    }`}
+                  >
+                    {p.planName} · {p.cycleMonths}mo
+                  </Link>
+                );
+              })}
+            </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              {active?.blurb}.{" "}
+              {selectedPlan ? (
+                <>
+                  Filtered to <strong>{selectedPlan.planName}</strong>, so every cohort below shares
+                  a {selectedPlan.cycleMonths}-month renewal cycle and is measured at the same point
+                  in its lifecycle.
+                </>
+              ) : (
+                <>
+                  Blended across plans. For issue and month cohorts,{" "}
+                  <strong>check a single plan before trusting a gap</strong> — a renewal is 3 months
+                  on one plan and 12 on another, and the plan mix varies a lot by cohort.
+                </>
+              )}
+            </p>
           </div>
 
           <div className="overflow-x-auto">

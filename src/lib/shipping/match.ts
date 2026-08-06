@@ -19,9 +19,9 @@
  * Tracking-number matching is normalised (case/space/punctuation stripped)
  * because carrier portals and spreadsheets rarely agree on formatting.
  */
-import { and, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../db/client";
-import { fulfillments, shippingCharges, shippingInvoices } from "../../db/schema";
+import { shippingCharges, shippingInvoices } from "../../db/schema";
 import { expectedRateCentsSql, zoneFromCountrySql } from "./rate-rules";
 
 /** Strip formatting so "1Z K414 4668" matches "1zk4144668". */

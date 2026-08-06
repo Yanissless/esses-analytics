@@ -467,6 +467,18 @@ export interface ChurnCohortOptions {
   source?: ChurnSource;
   /** Drop cohorts with fewer than this many subscriptions (thin cohorts mislead). */
   minSubscriptions?: number;
+  /**
+   * Restrict to one plan, holding billing cadence constant.
+   *
+   * Essential when comparing any cohort dimension that correlates with TIME — issue,
+   * signup month — because a renewal is 3 months on one plan and 12 on another. Two
+   * issue cohorts with different plan mixes are measured at different points in their
+   * lifecycle, so a gap between them can be pure cadence rather than a real quality
+   * difference. Compare within a plan first, then decide.
+   */
+  planName?: string;
+  /** Restrict to one billing cadence — a plan NAME can cover more than one. */
+  cycleMonths?: number;
 }
 
 /**
@@ -479,11 +491,14 @@ export async function getChurnCohorts(
   dimension: ChurnDimension,
   opts: ChurnCohortOptions = {},
 ): Promise<ChurnCohort[]> {
-  const { source = "all", minSubscriptions = 1 } = opts;
+  const { source = "all", minSubscriptions = 1, planName, cycleMonths } = opts;
   const { extraCte, keyExpr } = keyExpression(dimension);
 
   const sourceFilter =
     source === "all" ? sql`` : sql`AND e.source = ${source}`;
+  const planFilter = planName ? sql`AND e.plan_name = ${planName}` : sql``;
+  const cadenceFilter =
+    cycleMonths == null ? sql`` : sql`AND e.cycle_months = ${cycleMonths}`;
 
   const data = await rows<Record<string, unknown>>(sql`
     WITH ${SUBS_CTE}, ${ACQ_CTE}, ${VALUE_CTE}
@@ -498,7 +513,7 @@ export async function getChurnCohorts(
         LEFT JOIN acq a ON a.customer_id = e.customer_id
         LEFT JOIN customers cu ON cu.id = e.customer_id
         LEFT JOIN cust_value cv ON cv.customer_id = e.customer_id
-       WHERE true ${sourceFilter}
+       WHERE true ${sourceFilter} ${planFilter} ${cadenceFilter}
     )
     SELECT cohort_key,
            count(*)::int AS subscriptions,

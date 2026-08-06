@@ -64,6 +64,13 @@
       "when": 1785948197587,
       "tag": "0008_chilly_wrecker",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786032971433,
+      "tag": "0009_serious_mojo",
+      "breakpoints": true
     }
   ]
 }

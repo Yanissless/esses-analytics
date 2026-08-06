@@ -2,10 +2,13 @@
 
 **Last updated:** 2026-08-06 (session 8)
 **Project root:** `C:\Users\samwi\esses-analytics`
-**Status:** Phases 1–8b built, plus Marketing/reconciliation, Churn & cohorts, Social
-and Personas, with a live margin-boundary setting and COGS sensitivity/coverage.
-189 tests pass, typecheck + build clean, all 13 routes render against live data.
-Git baseline exists (§4.9).
+**Status:** Phases 1–9 built. Marketing/reconciliation, Churn & cohorts, Social,
+Personas and **Forecast & goals**, with a live margin-boundary setting and COGS
+sensitivity/coverage. 205 tests pass, typecheck + **lint** + build clean, all 14 routes
+render against live data. Git baseline exists (§4.9).
+
+**Every major dashboard from the brief now exists.** What's left: the phase-10
+validation pass, phase-11 advertiser reporting, and AI insights + the Slack digest.
 
 ⚠️ **Read §5.2 before touching Meta.** Access is blocked at the APP level — a new
 token will not fix it. Sam is working on the unblock.
@@ -95,8 +98,8 @@ so a new route needs no allowlist entry.
 
 ### Pages (all behind auth)
 `/` Overview · `/profit` · `/marketing` · `/social` · `/customers` (LTV/cohorts) ·
-`/churn` · **`/personas`** (new) · `/international` · `/costs` · `/shipping` ·
-`/login` · `/api/health`
+`/churn` · `/personas` · **`/forecast`** (new) · `/international` · `/costs` ·
+`/shipping` · `/login` · `/api/health`
 
 ### Architecture notes worth knowing
 - **`order_profit` is the materialised single source of per-order costed margin**
@@ -445,6 +448,88 @@ import — and ShopifyQL is still blocked (§6). The §5.1 shipping fix therefor
 rests entirely on the country-population fix making the `country_code = 'US'` domestic
 rules reachable at priority 60. That's sufficient today, but the belt-and-braces half is
 not in the data yet.
+
+### 4.13 ✅ RESOLVED — the Issue 04 vs Issue 05 retention gap is REAL
+
+Session 8 tested the plan-mix confound properly. `getChurnCohorts` now takes
+`planName` / `cycleMonths`, and `/churn` has a **plan filter** so this is reproducible
+in the UI rather than living in a throwaway script.
+
+**The plan mix genuinely differs**, so the concern was warranted:
+
+| cohort | annual (12mo) | quarterly (3mo) |
+|---|---|---|
+| Issue 04 | 231 (57%) | 177 (43%) |
+| Issue 05 | 385 (30%) | 899 (70%) |
+
+**But the gap survives holding cadence constant.** Within *Quarterly Subscription*
+only — the sole plan with mature subscriptions:
+
+| cohort | subs | mature | churn by 1st renewal |
+|---|---|---|---|
+| Issue 04 | 177 | 177 | **14.7%** |
+| Issue 05 | 899 | 877 | **50.1%** |
+
+A 35pp gap on well-powered denominators, essentially identical to the blended 34pp.
+**Not a cadence artefact.**
+
+**Two hypotheses tested and REJECTED:**
+
+1. *Discount-led acquisition.* Backwards — Issue 05 used promo codes far **less**
+   (3.6% vs 40.1%) and still churned worse. Within Issue 05, promo users churned
+   **better** (32.3%, n=31) than non-promo (50.7%, n=846), consistent with §5.6.
+2. *Cheaper acquisition.* Prices are flat: average acquisition order $33.08 (Issue 04)
+   vs $31.78 (Issue 05); MRR $10.36 vs $10.22.
+
+**What does correlate** — two composition differences, both pointing the same way:
+
+- **Channel mix:** Issue 05 is **68.3% organic-social** vs Issue 04's 27.7%. Organic
+  social is our worst-retaining channel at 51.1% (§5.6) — and Issue 05's 50.1% is
+  almost exactly that rate.
+- **Free acquisition:** **306 of 877** mature Issue 05 quarterly subs (35%) have **no
+  paid Shopify order at all**, versus **0** for Issue 04. Promo *codes* miss this
+  because a $0 selling plan or automatic discount carries no code.
+
+**Conclusion: it's acquisition composition, not the magazine.** Channel and free-ness
+are themselves correlated so they can't be cleanly separated, but the actionable lever
+is acquisition mix — not editorial. Worth stating plainly to anyone who sees the raw
+issue comparison, because the obvious reading ("Issue 05 was worse") is wrong.
+
+### 4.14 ✅ Built — Forecast & goals (`/forecast`), phase 9
+
+The last major dashboard from the brief. `goals` table (migration `0009`), one row per
+(month, metric) across revenue / CM3 / orders / new customers, editable on the page by
+an admin.
+
+**The projection deliberately isn't a straight line.** Revenue arrives in issue-release
+spikes (Issue 04 on 14 Nov, 05 on 30 Jan, 06 on 15 May), so naive
+`revenue ÷ days_elapsed × days_in_month` is actively misleading. Instead:
+
+- projects from a **trailing 14-day window**, so a slow first week doesn't drag the
+  estimate all month
+- publishes a **band** (±1 SD scaled by √remaining-days), not a false-precision point —
+  and the band collapses to a point when there's genuinely no observed volatility
+- **flags an issue release falling in the remaining days** and says to read the
+  projection as a floor, because a run rate learned pre-release cannot anticipate one
+- **"today" is the last date `daily_metrics` holds**, not the wall clock. Projecting
+  past the last synced day would treat unsynced days as zeros and read as a business
+  collapse; the page warns when data is stale instead.
+
+`projectPeriod` / `paceVsTarget` / `daysElapsed` / `daysInMonth` are pure and carry 16
+tests, including "never projects below what's already banked" and "widens the band when
+days are volatile".
+
+⚠️ `goals.target_amount` is an integer whose **unit depends on the metric** — cents for
+money, a count otherwise. `GOAL_METRICS` is the single place that mapping lives; consult
+it before formatting or an orders target renders as `$12.00`.
+
+### 4.15 Fixed two pre-existing lint errors
+
+`Math.random().toString()` was used as a React key fallback on the Overview and Profit
+pages (from the baseline commit). That generates a fresh key every render, remounting
+the row and defeating reconciliation — React's compiler lint flags it as an impure call
+during render, and it was failing `run.cmd lint`. Now uses the array index. **`lint` is
+down to 0 errors** (5 unused-import warnings remain elsewhere).
 
 ### 4.5 Hardened Shopify network retry
 
@@ -856,12 +941,15 @@ Consequences:
 - ❌ **`pnpm start -- -p 3011` passes `--` through literally** to `next start`, which
   reads it as a project directory. Use `$env:PORT="3011"` instead.
 - ❌ **Importing a module with a DB dependency into a `"use client"` file** kills the
-  build: `Module not found: Can't resolve 'fs'`, traced through
+  build: `Module not found: Can't resolve 'fs'` (and `net`, `perf_hooks`), traced through
   `postgres/src/index.js → src/db/client.ts → your module → [Client Component Browser]`.
-  Hit when the `/costs` settings form imported `margin-boundary.ts`. Fix is the split
-  now in place: pure constants/types in `margin-boundary.ts`, drizzle + db in
-  `margin-boundary.server.ts`. **Any shared module a client component imports must be
-  dependency-free.** Typecheck passes either way — only `build` catches it.
+  **Hit twice** — the `/costs` boundary form importing `margin-boundary.ts`, then the
+  `/forecast` goal form importing `forecast.ts`. Both fixed by the same split: pure
+  constants/types in `x.ts`, drizzle + db in `x.server.ts`. **Any shared module a client
+  component imports must be dependency-free.** `tsc --noEmit` passes either way — only
+  `next build` catches it, so **decide the client/server split when you create a shared
+  module, not after the build breaks.** The `.server.ts` suffix is a naming convention
+  here, not a Next feature; it carries no enforcement.
 - ❌ **Escaped backticks inside a drizzle `sql\`\`` template** are a TS parse error
   (`TS1005: ',' expected`). Use double quotes in SQL comments, not backticks.
 - ❌ **Markdown TABLES convert badly when creating a Google Doc** via the Drive
@@ -883,12 +971,20 @@ Consequences:
 
 **In order:**
 
-1. **Separate the plan-mix confound in the issue cohorts (§5.6).** Issue 04 vs Issue 05
-   retention differs by 34pp, which would be a major editorial/marketing signal — but
-   cadence drives the renewal point, so confirm it survives a per-plan split before
-   anyone acts on it. Cheap: `getChurnCohorts('issue_at_signup')` plus a plan filter.
+1. **Act on §4.13.** The Issue 05 retention problem is an *acquisition mix* problem —
+   68% organic-social, and 35% with no paid order at all — not an editorial one. Levers:
+   shift acquisition toward newsletter (~0% first-renewal churn, $113 LTV) and away from
+   untagged organic social; and decide whether free-first-issue signups justify their
+   ~50% first-renewal churn. Both need the UTM rollout to measure properly.
 
-4. **Forecast/Goals page** (phase 9) — the last major missing dashboard from the brief.
+2. **Trace the free-acquisition route.** 306 mature Issue 05 subscribers have no paid
+   Shopify order at all. The mechanism isn't visible in `discount_codes` — a $0 selling
+   plan? an automatic discount? a comp converted to a subscription? It's a third of that
+   cohort and currently unexplained.
+
+3. **Phase 10 validation pass and phase 11 advertiser reporting** are now the only
+   substantial items left from the original brief, plus AI insights + the Slack digest.
+   Every major dashboard exists.
 
 **Blocked on Sam (don't guess these):**
 - Real per-copy **COGS** + **UK printer-park** cost → §5.3 (now the single biggest
@@ -927,22 +1023,26 @@ that token unblocks two things at once.
 Re-run these first to confirm nothing drifted:
 
 ```bash
-C:\Users\samwi\esses-analytics\run.cmd test        # expect: 17 files, 189 tests pass
+C:\Users\samwi\esses-analytics\run.cmd test        # expect: 18 files, 205 tests pass
 C:\Users\samwi\esses-analytics\run.cmd exec tsc --noEmit   # expect: silent
-C:\Users\samwi\esses-analytics\run.cmd build      # expect: 13 routes, clean
-C:\Users\samwi\esses-analytics\run.cmd metrics    # expect: 304 days, MER 5.15
+C:\Users\samwi\esses-analytics\run.cmd lint       # expect: 0 errors (5 unused-import warnings)
+C:\Users\samwi\esses-analytics\run.cmd build      # expect: 14 routes, clean
+C:\Users\samwi\esses-analytics\run.cmd metrics    # expect: 8,130 orders, MER 5.16
 ```
 
 ⚠️ `tsc --noEmit` does **not** catch a client component importing a DB-dependent
 module — only `build` does (§6). Run build before trusting a change that touches
-shared modules.
+shared modules. **`lint` catches things neither does** (impure calls during render).
 
-Verified passing at handoff time (2026-08-04, session 7): **189/189 tests**, typecheck
-silent, build clean (13 routes), all pages rendering 200 against live data —
-`/marketing` under every model/basis combination, `/churn` under every one of the six
-cohort dimensions, `/social`, `/personas`, and `/costs` with the boundary form. The
-boundary was set to each of its three values and read back, with `/profit` and
-`/international` agreeing to the cent each time.
+⚠️ **Run `run.cmd metrics` after any backfill.** `order_profit` is materialised, and a
+stale one silently under-reports `/international` — see the correction in §4.11.
+
+Verified passing at handoff time (2026-08-06, session 8): **205/205 tests**, typecheck
+silent, lint 0 errors, build clean (14 routes), all pages rendering 200 against live
+data — `/marketing` under every model/basis combination, `/churn` under all six cohort
+dimensions **and with the plan filter applied**, `/social`, `/personas`, `/forecast`,
+and `/costs` with the boundary form. The boundary was set to each of its three values
+and read back, with `/profit` and `/international` agreeing to the cent each time.
 
 Headline numbers as of handoff — quote these with their caveats, not bare:
 - Revenue (net, Shopify paid ex-VAT + Stripe): **$152,204**

@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/customers", label: "Customers & LTV" },
   { href: "/churn", label: "Churn & cohorts" },
   { href: "/personas", label: "Personas" },
+  { href: "/forecast", label: "Forecast" },
   { href: "/international", label: "International margin" },
   { href: "/costs", label: "Costs", adminOnly: true },
   { href: "/shipping", label: "Shipping", adminOnly: true },
