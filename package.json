@@ -24,7 +24,8 @@
     "check:ads": "tsx scripts/check-ads.ts",
     "metrics": "tsx scripts/rebuild-metrics.ts",
     "attribution": "tsx scripts/attribution-report.ts",
-    "restamp": "tsx scripts/restamp-acquisition.ts"
+    "restamp": "tsx scripts/restamp-acquisition.ts",
+    "check:deploy": "tsx scripts/check-deploy.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

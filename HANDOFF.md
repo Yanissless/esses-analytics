@@ -663,6 +663,35 @@ since one combined assertion would still pass if the map were widened.
 Migration `0010` adds the enum value. The Team page role picker is now a select (a
 two-way toggle can't express three roles) and lists what each role withholds.
 
+### 4.18 ✅ Built — `run.cmd check:deploy`, the preflight check
+
+One command that says whether an instance is actually set up correctly, aimed at someone
+who doesn't know the codebase: every failure states **what to do**, not just what's wrong.
+Exits non-zero on a critical failure, so it doubles as a smoke test.
+
+Checks: `AUTH_SECRET` / `CRON_SECRET` presence and length · database reachability (and
+whether a remote connection string is **pooled**) · schema present · an active admin
+exists · orders loaded · **metrics freshness** · each connector's credentials.
+
+⚠️ **Every import touching `src/lib/env` is deliberately LAZY.** `env.ts` validates with
+zod at module load and throws on the first bad variable, and `db/client` imports it — so
+a static import killed the script before it printed anything. The one situation a
+deployment check exists for, a misconfigured deployment, was the only one it couldn't
+diagnose. The secret checks read `process.env` directly so they always run. **Don't add a
+static import of env, db or a connector to this file.**
+
+Verified against three states: healthy (all PASS bar the two known warnings), a
+too-short `AUTH_SECRET` plus unreachable database (two FAILs, each with its fix), and a
+valid secret with a dead database (one FAIL naming the host).
+
+⚠️ **Naming:** it was originally `doctor`, which silently collided with pnpm's own
+built-in `pnpm doctor` — the script never ran and pnpm printed its cache diagnostics
+instead. Renamed to match the existing `check:*` family. **Check for a pnpm builtin
+before naming a script.**
+
+Also: `.env.example` gained `CRON_SECRET`, which it had been missing since the sync
+endpoint landed.
+
 ### 4.5 Hardened Shopify network retry
 
 A backfill died on a bare undici `fetch failed` after only ~5s of retry patience
@@ -1160,6 +1189,7 @@ C:\Users\samwi\esses-analytics\run.cmd exec tsc --noEmit   # expect: silent
 C:\Users\samwi\esses-analytics\run.cmd lint       # expect: 0 errors (5 unused-import warnings)
 C:\Users\samwi\esses-analytics\run.cmd build      # expect: 17 routes, clean
 C:\Users\samwi\esses-analytics\run.cmd metrics    # expect: 8,130 orders, MER 5.16
+C:\Users\samwi\esses-analytics\run.cmd check:deploy   # expect: all PASS bar CRON_SECRET + Meta
 ```
 
 ⚠️ `tsc --noEmit` does **not** catch a client component importing a DB-dependent

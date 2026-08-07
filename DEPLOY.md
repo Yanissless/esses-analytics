@@ -194,6 +194,23 @@ Go and do something else for ten minutes. It prints progress as it goes. Then:
 `metrics` is the one that makes the dashboards work — it does the number-crunching. Expect
 it to print a summary ending with figures like `MER 5.16`.
 
+### Check it all landed
+
+```powershell
+.\run.cmd check:deploy
+```
+
+This is the single most useful command in this document. It checks the connection string,
+the schema, that an admin exists, that data loaded, that the metrics were rebuilt, and
+that each connector's credentials work — and for anything wrong it tells you the exact
+command to fix it.
+
+Expect `PASS` on everything except two known warnings: **CRON_SECRET** (you haven't set it
+yet — that's Part 5) and **Meta Ads** (blocked at Meta's end, covered in `HANDOFF.md`
+§5.2). Anything marked `FAIL` needs fixing before you go further.
+
+Run it again after deploying, pointed at the same database, whenever something looks off.
+
 > **Don't run `--source=ads`** yet. Meta's API is blocked at the app level, so it will
 > just fail. Once that's sorted, come back and run it.
 
@@ -379,6 +396,10 @@ PowerShell, set `$env:DATABASE_URL` to the Neon string, and run Part 4 again.
 **Pages work then start failing once a few people use it**
 Non-pooled connection string. Swap it for the `-pooler` one in Vercel and redeploy.
 
+**Start here for anything at all** — run `.\run.cmd check:deploy`. It diagnoses most of
+the above by itself and tells you the command to fix it. Set `$env:DATABASE_URL` to the
+database you want it to inspect first.
+
 **Anything else** — copy the error text and send it to me. Don't include the
 `DATABASE_URL`, keys, or passwords.
 
@@ -405,6 +426,9 @@ $env:SEED_ADMIN_PASSWORD = "your-chosen-password"
 
 # 5. Generate a secret (run twice — AUTH_SECRET and CRON_SECRET)
 openssl rand -base64 48
+
+# Check everything at any point — tells you what's wrong and how to fix it
+.\run.cmd check:deploy
 ```
 
 Then: Vercel import → environment variables → Deploy → add the domain → test
