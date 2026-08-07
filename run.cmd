@@ -20,8 +20,20 @@ cd /d "%~dp0"
 if "%~1"=="" (
   echo Usage: run.cmd ^<pnpm-script^>  e.g.  run.cmd check:shopify
   echo.
-  echo Available: check:shopify, sync, backfill, start, dev, review,
-  echo            import:shipping, seed:costs, db:migrate, test
+  echo First time here?  run.cmd install   then   run.cmd check:deploy
+  echo.
+  echo   check:deploy     verify config, database, data and connectors
+  echo   check:shopify    verify Shopify auth + scopes
+  echo   check:ads        verify Meta credentials
+  echo   db:migrate       create/update database tables
+  echo   db:seed          create the first admin login
+  echo   backfill         load history  --since=2025-10-01 --source=shopify
+  echo   sync             incremental catch-up, all sources
+  echo   metrics          rebuild order_profit + daily_metrics
+  echo   review           flagged-order review queue
+  echo   test / lint / build / start / dev
+  echo.
+  echo Any pnpm command works too, e.g.  run.cmd install
   exit /b 1
 )
 

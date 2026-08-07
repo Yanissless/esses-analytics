@@ -1,5 +1,12 @@
 # Esses Analytics
 
+> **Picking this up for the first time? Read [`START-HERE.md`](./START-HERE.md).**
+> Going live is [`DEPLOY.md`](./DEPLOY.md) · conventions and hard rules are in
+> [`CLAUDE.md`](./CLAUDE.md) · the full history, every failed approach and every open
+> problem is in [`HANDOFF.md`](./HANDOFF.md).
+>
+> First two commands: `.\run.cmd install` then `.\run.cmd check:deploy`.
+
 Internal sales, marketing, and customer-value analytics for **Esses Media / Esses
 Magazine Shop** — a StoreHero replacement we own and can extend. Unifies customer
 LTV across **Shopify** (one-time + Skio subscription orders) and **Stripe** (print
