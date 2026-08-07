@@ -381,6 +381,12 @@ Set expectations so they report real problems rather than known ones:
 Use `.\run.cmd` rather than `pnpm` directly. That launcher exists specifically to fix
 this.
 
+**`build` fails with "Failed to collect page data for /api/health"**
+You have no `.env` file, or it's missing `DATABASE_URL` / `AUTH_SECRET`. The message is
+misleading — nothing is wrong with `/api/health`; it's just the first route that touches
+the database, and the configuration check throws before it. Copy `.env.example` to `.env`
+and fill it in.
+
 **Website loads but says "Invalid email or password"**
 Part 3's `db:seed` ran against a different database than Vercel is using. Check the
 `DATABASE_URL` in Vercel matches the one you used in PowerShell exactly.

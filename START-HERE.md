@@ -45,7 +45,8 @@ it replaces.
 
 - **218 tests pass** · typecheck silent · lint 0 errors · build clean across **17 routes**
 - Running against live data: 8,130 countable orders, $152,204 net revenue, MER 5.16
-- Git: **7 commits on `master`**, working tree clean, **no remote yet** (that's your Part 1)
+- Git: **13 commits on `master`**, working tree clean, **no remote yet** (that's your Part 1).
+  The history is worth reading — each message explains *why*, not just what.
 
 ### Pages
 
@@ -189,9 +190,25 @@ The ones most likely to waste your time:
 3. **Ask Sam to rotate the Stripe and Skio keys** as he shares them. Both passed through a
    chat window during development and should be treated as exposed.
 
-Then:
-
 ```powershell
 .\run.cmd install
 .\run.cmd check:deploy   # tells you exactly what's still missing
 ```
+
+### ⚠️ `build` will fail until `.env` exists — with a misleading error
+
+This handover was tested from a clean state, and this is the one thing that trips it up.
+Without a `.env`, `.\run.cmd build` fails with:
+
+```
+Build error occurred
+Error: Failed to collect page data for /api/health
+```
+
+That message has nothing to do with `/api/health`. The env schema validates at module
+load and throws, and `/api/health` is simply the first route Next touches that imports the
+database client. **Create `.env` and it builds cleanly.**
+
+Verified from a fresh checkout with placeholder values: 218 tests pass, typecheck silent,
+build clean across 17 routes. `.\run.cmd test` and `tsc --noEmit` both work *without* a
+`.env` — only `build` and anything touching the database need one.
