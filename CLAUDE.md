@@ -110,7 +110,11 @@ reconcile against a second surface. Several bugs here passed every test.
 
 - **Meta API** — blocked at the *app* level, not the token. Ours returns OAuthException
   code **200**; a malformed token returns 190, and `/debug_token` fails too. A fresh token
-  from the same app fails identically. `HANDOFF.md` §5.2 has the fix path.
+  from the same app fails identically. The app is outside Esses' control (Business Suite
+  and developer-app permissions are separate systems), so it's being **rebuilt on a new app
+  with a non-expiring System User token** — `HANDOFF.md` §5.2. **Run `run.cmd check:meta`
+  before touching anything Meta-related**; it separates token / app / missing-scope causes
+  and prints the remediation for each.
 - **ShopifyQL `shipping_labels`** — needs `read_reports` *and* Level 2 protected customer
   data access. Non-fatal by design; shipping falls back to rate rules.
 

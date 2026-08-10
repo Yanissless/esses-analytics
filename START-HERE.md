@@ -100,8 +100,12 @@ The ones most likely to waste your time:
 - **Meta API is blocked at the APP level, not the token.** Ours returns OAuthException
   code **200** ("API access blocked"); a malformed token returns **190**, and
   `/debug_token` fails too — that endpoint answers even for expired tokens. **A new token
-  from the same app will fail identically.** Fix path in §5.2: Data Use Checkup, Business
-  Verification, App Review status, app mode. Sam is on it.
+  from the same app will fail identically.**
+  **Resolved as of 2026-08-10:** the app is outside Esses' control — Meta's Business Suite
+  and developer-app permissions are separate systems, so nobody here has a developer role
+  on it, and it's blocked regardless. **Sam is rebuilding on a new app with a non-expiring
+  System User token.** Full steps in §5.2. Run **`run.cmd check:meta`** to see where it
+  stands; it diagnoses token vs app vs missing scope and prints the fix for each.
 - **ShopifyQL `shipping_labels`** needs `read_reports` *and* Level 2 protected customer
   data access. Deliberately non-fatal — shipping falls back to rate-rule estimates.
 

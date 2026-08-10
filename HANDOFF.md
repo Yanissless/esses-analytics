@@ -805,17 +805,52 @@ Typical causes, in likelihood order: an overdue **Data Use Checkup**, lapsed
 **Business Verification**, the app flagged/disabled by a policy review, or the app in
 Development mode with the token's user no longer an admin/tester.
 
-**Fix path (all in Meta's UI, none of it in code):**
-1. `developers.facebook.com/apps` → open the app → read the alert banner at the top.
-2. Check **App Review → Permissions and Features** for anything reverted to Standard
-   Access, and **Settings → Advanced** for a Data Use Checkup prompt.
-3. Check `business.facebook.com` → **Business Settings → Security Centre** for
-   Business Verification status.
-4. Resolve whatever is flagged, then generate the token and paste it into `.env`.
+**Run `run.cmd check:meta` first.** It re-runs the differential test and prints the
+remediation path for whichever cause it detects — token vs app vs missing scope, which
+need completely different fixes.
 
-Then: `run.cmd check:ads`, `run.cmd backfill --since=2025-10-01 --source=ads`,
-`run.cmd metrics`. The `claimExceedsAllOrders` guard clears itself once the data is
-sane.
+### 🔴 Updated 2026-08-10 — the plan is now a clean rebuild, not a repair
+
+Sam was granted **Business Suite** permissions and still could not find the app. Re-tested
+after that: **unchanged, still code 200.** That resolved the ambiguity, because Meta has
+two unconnected permission systems:
+
+- `business.facebook.com` — Business Suite: ad accounts, Pages, assets, **system users**
+- `developers.facebook.com` — **Apps**, with their own separate Administrator / Developer /
+  Tester roles
+
+Business Suite access grants nothing in the second list, so the app genuinely will not
+appear under "My Apps". Two independent facts hold: **nobody at Esses has a developer role
+on that app**, and **the app is blocked regardless of who can see it**.
+
+**So the app is outside Esses' control and cannot be repaired from inside it.** The plan is
+to abandon it and build a clean one — roughly 15 minutes, and it produces a *better* setup
+than before, because a **System User token does not expire** (the old one's renewal cycle is
+part of why this broke).
+
+**The rebuild, in Meta's UI — no code changes at all:**
+
+1. `developers.facebook.com/apps` → **Create app**, ads/Business type, name it
+   `Esses Analytics`, and attach it to the **Esses business portfolio**. Creating it makes
+   the creator an Administrator, so it stays visible.
+2. Add the **Marketing API** product to the app.
+3. `business.facebook.com` → Business Settings → **Accounts → Apps** → add it if absent.
+4. Business Settings → **Users → System users** → Add (`Esses Analytics Sync`, Employee
+   access) → **Assign assets**: the ad account, **View performance** only → **Generate new
+   token** with `ads_read` (plus the §5.2a Instagram scopes if doing that work).
+5. Token into `.env`, then `run.cmd check:meta` → `backfill --source=ads` → `metrics`.
+
+**Optional, 5 minutes, worth doing for the information:** paste the old token into
+`developers.facebook.com/tools/debug/accesstoken/`. That page authenticates with the
+viewer's Facebook login rather than the token, so it usually still reports the **App name,
+App ID and token type** — which reveals *who owns the old app*. If it belongs to an agency
+or a former contractor, that explains the whole failure and is worth knowing.
+
+⚠️ **Security follow-up:** the old app holds a live credential pointing at the Esses ad
+account and is controlled by someone outside the business. Once the new app works, ask its
+owner to delete it or revoke its tokens.
+
+The `claimExceedsAllOrders` guard clears itself once the data is sane.
 
 Meanwhile spend, impressions and clicks are unaffected (they predate the §4.3 bug and
 the block), so **MER, aMER, CAC and CM3 remain trustworthy**.

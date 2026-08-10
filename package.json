@@ -25,7 +25,8 @@
     "metrics": "tsx scripts/rebuild-metrics.ts",
     "attribution": "tsx scripts/attribution-report.ts",
     "restamp": "tsx scripts/restamp-acquisition.ts",
-    "check:deploy": "tsx scripts/check-deploy.ts"
+    "check:deploy": "tsx scripts/check-deploy.ts",
+    "check:meta": "tsx scripts/check-meta.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
