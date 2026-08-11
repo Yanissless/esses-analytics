@@ -26,6 +26,7 @@ if "%~1"=="" (
   echo   check:shopify    verify Shopify auth + scopes
   echo   check:ads        verify Meta credentials
   echo   check:meta       diagnose WHY Meta is failing ^(token vs app vs scope^)
+  echo   check:analyst    verify the /ask analyst: every tool, and the role boundary
   echo   db:migrate       create/update database tables
   echo   db:seed          create the first admin login
   echo   backfill         load history  --since=2025-10-01 --source=shopify

@@ -17,6 +17,7 @@
     "backfill": "tsx scripts/backfill.ts",
     "sync": "tsx scripts/sync.ts",
     "import:csv": "tsx scripts/import-csv.ts",
+    "import:social": "tsx scripts/import-social.ts",
     "review": "tsx scripts/review-orders.ts",
     "seed:costs": "tsx scripts/seed-cost-model.ts",
     "import:shipping": "tsx scripts/import-shipping-report.ts",
@@ -26,9 +27,11 @@
     "attribution": "tsx scripts/attribution-report.ts",
     "restamp": "tsx scripts/restamp-acquisition.ts",
     "check:deploy": "tsx scripts/check-deploy.ts",
-    "check:meta": "tsx scripts/check-meta.ts"
+    "check:meta": "tsx scripts/check-meta.ts",
+    "check:analyst": "tsx scripts/check-analyst.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
     "bcryptjs": "^3.0.3",
     "csv-parse": "^7.0.1",
     "drizzle-orm": "^0.45.2",

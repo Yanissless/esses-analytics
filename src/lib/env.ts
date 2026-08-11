@@ -77,9 +77,17 @@ const envSchema = z.object({
   SLACK_BOT_TOKEN: z.string().optional(),
   SLACK_DIGEST_CHANNEL: z.string().optional(),
   SLACK_ALERT_CHANNEL: z.string().optional(),
-  // Claude API (AI insights — Phase 9; confirm current model at build time)
+  /**
+   * Claude API — powers the /ask analyst. Optional: without a key the page renders a
+   * "not configured" notice and every other route is unaffected.
+   *
+   * Opus 5 over Sonnet because the work is reasoning-shaped rather than
+   * throughput-shaped — a cohort question needs several tool calls and a judgement about
+   * which margin boundary applies. Override to `claude-sonnet-5` to trade some of that
+   * for cost. See src/lib/ai/analyst.ts.
+   */
   ANTHROPIC_API_KEY: z.string().optional(),
-  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),
+  ANTHROPIC_MODEL: z.string().default("claude-opus-5"),
 });
 
 export type Env = z.infer<typeof envSchema>;

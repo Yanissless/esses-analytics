@@ -9,6 +9,7 @@ export * from "./catalog";
 export * from "./orders";
 export * from "./subscriptions";
 export * from "./marketing";
+export * from "./social";
 export * from "./markets";
 export * from "./shipping";
 export * from "./metrics";

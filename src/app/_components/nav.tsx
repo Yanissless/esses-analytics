@@ -9,11 +9,15 @@ import { Badge } from "./ui";
  * simply isn't rendered — and because the page guards independently, hiding the link is
  * presentation rather than the security boundary.
  */
-const LINKS: Array<{ href: string; label: string; capability: Capability }> = [
+const LINKS: Array<{ href: string; label: string; capability?: Capability }> = [
+  // No capability: every role may ask questions. What differs is the toolset the agent
+  // is given, which is derived from this same map — see lib/ai/tools.server.ts.
+  { href: "/ask", label: "Ask", capability: undefined },
   { href: "/", label: "Overview", capability: "revenue" },
   { href: "/profit", label: "Profit", capability: "margin" },
   { href: "/marketing", label: "Marketing", capability: "marketing" },
   { href: "/social", label: "Social", capability: "marketing" },
+  { href: "/audience", label: "Audience", capability: "marketing" },
   { href: "/customers", label: "Customers & LTV", capability: "customers" },
   { href: "/churn", label: "Churn & cohorts", capability: "audience" },
   { href: "/personas", label: "Personas", capability: "audience" },
@@ -32,7 +36,7 @@ export function Nav({ email, role }: { email: string; role: Role }) {
         <div className="flex items-center gap-4">
           <span className="text-sm font-semibold tracking-tight">Esses Analytics</span>
           <nav className="flex items-center gap-1">
-            {LINKS.filter((l) => can(role, l.capability)).map((l) => (
+            {LINKS.filter((l) => !l.capability || can(role, l.capability)).map((l) => (
               <Link
                 key={l.href}
                 href={l.href}

@@ -78,6 +78,13 @@
       "when": 1786048412047,
       "tag": "0010_flimsy_puff_adder",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786475810497,
+      "tag": "0011_yummy_stone_men",
+      "breakpoints": true
     }
   ]
 }
