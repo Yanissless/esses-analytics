@@ -56,8 +56,8 @@ external blockers.
 
 **Phases 1–9 of 11 are built.** Every major dashboard from the brief exists.
 
-- **218 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
-  unused-import warnings) · `build` clean across **17 routes**
+- **254 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
+  unused-import warnings) · `build` clean across **20 routes**
 - Running against live data: 8,130 countable orders, $152,204 net revenue, MER 5.16
 - Git: **~18 commits on `master`**, working tree clean, **no remote yet** — that's Part 1
   of `DEPLOY.md`. The history is worth reading; each message explains *why*, not what.
@@ -66,9 +66,19 @@ external blockers.
 
 ### Pages
 
-`/` Overview · `/profit` · `/marketing` · `/social` · `/customers` · `/churn` ·
-`/personas` · `/forecast` · `/international` · `/costs` · `/shipping` · `/team` ·
-`/account` · `/login` · `/api/health` · `/api/sync`
+`/` Overview · `/profit` · `/marketing` · `/social` · `/audience` · `/customers` ·
+`/churn` · `/personas` · `/forecast` · `/international` · `/costs` · `/shipping` ·
+`/team` · `/ask` · `/account` · `/login` · `/api/health` · `/api/sync` · `/api/ai/ask`
+
+**`/ask`** is the AI analyst (Claude Opus 5): 24 read-only tools over the existing
+`metrics/*` functions, no SQL. Gated on `requireUser()` — every role may ask — but the
+*toolset* is filtered by capability, so a marketing user's agent genuinely cannot reach
+margin or individual customers (11 of 24 tools). `run.cmd check:analyst` calls every tool
+live and prints the boundary. Needs `ANTHROPIC_API_KEY`; without it the page says so and
+nothing else is affected.
+
+**`/audience`** correlates Instagram follower growth against subscriber growth. Currently
+has no follower data to draw — see §4.
 
 ### Roles
 
@@ -120,6 +130,20 @@ the *next* piece of work lands in:
 - **`DEPLOY.md` § "If you're on a Mac"** — the three shell differences that matter
   (`run.sh`, `export` instead of `$env:`, `curl` instead of `Invoke-WebRequest`).
 
+### New 11 Aug 2026 (afternoon session)
+
+- **`/ask` — the AI analyst.** `lib/ai/analyst.ts` (pure: prompt, tool registry, the
+  `roleCanUseTool` predicate), `tools.server.ts` (24 read-only wrappers over `metrics/*`),
+  `analyst.server.ts` (SDK tool-runner loop), `api/ai/ask` (SSE), `app/ask/`. Plus
+  `scripts/check-analyst.ts` → `run.cmd check:analyst`.
+- **`/audience` — follower vs subscriber growth.** New `social_audience` table (migration
+  `0011`), `metrics/audience-growth.ts` (correlation on changes, lead/lag profile,
+  `indexToBase`), `scripts/import-social.ts` → `run.cmd import:social`.
+- **Hard rule 9** added to `CLAUDE.md`: never a dual y-axis; correlate changes not levels.
+- `ANTHROPIC_MODEL` default corrected from the `claude-sonnet-4-6` placeholder to
+  `claude-opus-5`, discharging the "confirm the model at build time" note in
+  `.env.example`.
+
 ---
 
 ## 4. Everything tried that failed
@@ -128,8 +152,19 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
 
 ### Blocked externally — don't retry
 
-- **Meta API is blocked at the APP level, not the token. CONFIRMED 2026-08-11: it's a
-  Meta enforcement action, and there is nothing to rebuild.**
+- ## ✅ **Meta ads API — UNBLOCKED 11 Aug 2026.** The enforcement action lifted the same
+  day this file was written. Two consecutive `check:meta` runs pass: `/me` succeeds, the
+  app resolves, the ad account reads `active`, `ads_read` + `read_insights` both present,
+  all on the hardcoded v21.0. Not intermittent.
+  - ⚠️ **The stored ad data is still wrong.** `ad_spend` stops at 2026-07-30 and the
+    conversion counts are the ~3x-inflated set. Nothing is fixed until
+    `backfill --since=2025-10-01 --source=ads` then `metrics` have run.
+  - Everything below this line is the *superseded* diagnosis. It is kept because the
+    reasoning is worth reading — in particular how the token-vs-app distinction was
+    established — but **do not act on it.**
+
+- ~~**Meta API is blocked at the APP level, not the token. CONFIRMED 2026-08-11: it's a
+  Meta enforcement action, and there is nothing to rebuild.**~~ *(superseded — see above)*
   - Meta's own debugger reports the token **Valid: True** — System User, never expires,
     `ads_read` + `read_insights`, app **Esses Analytics** (`28698775013059115`), user
     `esses analytics sync`.
@@ -152,6 +187,20 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
   - An earlier plan in `HANDOFF.md` recommended rebuilding the app. It is marked
     **superseded** rather than deleted, because its reasoning is still worth reading.
     Do not act on it.
+- **Instagram organic metrics — still blocked, and a DIFFERENT blocker from the ads one
+  above.** Follower count, reach and per-post engagement need `instagram_basic`,
+  `instagram_manage_insights`, `pages_show_list` and `pages_read_engagement`. All four are
+  missing from the token and the app sees **0 Pages**. Requesting them is now actually
+  possible (it wasn't while the app was blocked) and it is Meta-UI work.
+  - ⚠️ **Granting the scopes will not backfill history.** Instagram's `follower_count`
+    insight returns a rolling **~30-day window** — there is no endpoint for the follower
+    count on an arbitrary past date. So a correlation against subscriber growth can only
+    ever be built from numbers recorded as they happened.
+  - That is why `/audience` reads a `social_audience` snapshot table with a `source`
+    column, and why `run.cmd import:social` exists: a weekly number read off the
+    Instagram app is a first-class input, and the charts state how much of the series was
+    observed versus hand-entered.
+
 - **ShopifyQL `shipping_labels`** needs `read_reports` *and* Level 2 protected customer
   data access. Deliberately non-fatal — shipping falls back to rate-rule estimates.
 
@@ -204,10 +253,12 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
    `check:deploy` — it verifies config, database, data, metrics freshness and every
    connector, and names the fix for anything wrong.
 2. **Add the team** via `/team`, using the narrowest role that does the job.
-3. **Re-sync Meta** the moment the app block clears: `backfill --since=2025-10-01
-   --source=ads`, then `metrics`. That fixes the inflated conversion counts *and* unblocks
-   the social engagement dashboard (which additionally needs `instagram_basic`,
-   `instagram_manage_insights`, `pages_show_list`, `pages_read_engagement`).
+3. **Re-sync Meta — the block has cleared, so this is actionable now and is the single
+   highest-value item on this list.** `backfill --since=2025-10-01 --source=ads`, then
+   `metrics`. Until it runs, every Meta conversion figure in the app is the stale
+   ~3x-inflated set from 30 July. Note this does *not* unblock the social engagement
+   dashboard or `/audience`: those need the four Instagram/Pages scopes, which are a
+   separate grant and still missing (§4).
 4. **Trace the free-acquisition route.** 306 of 877 mature Issue-05 quarterly subscribers
    have **no paid Shopify order at all**, and the mechanism isn't visible in
    `discount_codes` — a $0 selling plan? an automatic discount? a comp converted to a
@@ -218,7 +269,16 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
    customers, or the product ID / date range, would let us separate migration lapse from
    genuine churn** — they're currently one number, and it makes Issue 05 look far worse
    than it was.
-5. **Then:** phase-10 validation pass, phase-11 advertiser reporting, AI insights + Slack.
+5. **Get follower numbers into `/audience`.** The page, the table, the correlation and the
+   charts are built and tested; they have nothing to draw. Two ways in, and they compose:
+   request the four Instagram scopes for the live feed going forward, and import whatever
+   history exists via `run.cmd import:social` — 12 weekly readings is the point at which
+   the correlation starts to mean anything. Without history there is no correlation to
+   compute, scopes or no scopes.
+
+6. **Then:** phase-10 validation pass, phase-11 advertiser reporting, the AI insights
+   *digest* to Slack (the interactive half now exists at `/ask`; the scheduled push does
+   not, and needs `SLACK_BOT_TOKEN`).
 
 **Small and offered but not yet approved:** make the Meta Graph API version configurable
 via env — it's hardcoded `v21.0` in `src/connectors/ads/meta.ts`. Not the current problem,
@@ -242,8 +302,9 @@ but v21.0 will sunset eventually and right now that's a code change rather than 
 Paste this to a fresh Claude Code session:
 
 > Read `START-HERE.md`, then `CLAUDE.md`, then `git log -1` to see where we are.
-> Clean tree, 218 tests passing. I'm doing <the thing>. Meta is blocked by a Meta-side
-> enforcement action — don't try to fix it in code.
+> Clean tree, 254 tests passing. I'm doing <the thing>. Meta's *ads* API access is back
+> (11 Aug) but the stored ad data is still the stale ~3x-inflated set; Instagram organic
+> metrics are still scope-blocked — don't try to fix either in code.
 
 Then:
 
@@ -286,8 +347,8 @@ That message has nothing to do with `/api/health`. The env schema validates at m
 load and throws, and `/api/health` is simply the first route Next touches that imports the
 database client. **Create `.env` and it builds cleanly.**
 
-Verified from a fresh checkout with placeholder values: 218 tests pass, typecheck silent,
-build clean across 17 routes. `test` and `tsc --noEmit` both work *without* a `.env` —
+Verified from a fresh checkout with placeholder values: 254 tests pass, typecheck silent,
+build clean across 20 routes. `test` and `tsc --noEmit` both work *without* a `.env` —
 only `build` and anything touching the database need one.
 
 ---

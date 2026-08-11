@@ -14,11 +14,13 @@ Node and pnpm were installed after this machine's shells were created, so `pnpm`
 be on PATH. **Always use the launcher:**
 
 ```powershell
-.\run.cmd test          # 218 tests
+.\run.cmd test          # 254 tests
 .\run.cmd exec tsc --noEmit
 .\run.cmd lint          # expect 0 errors (6 unused-import warnings are pre-existing)
-.\run.cmd build         # 17 routes
+.\run.cmd build         # 20 routes
 .\run.cmd check:deploy  # preflight: config, DB, data, connectors — start here when anything looks wrong
+.\run.cmd check:analyst # the /ask analyst: calls every tool live, prints the role boundary
+.\run.cmd import:social --file="followers.csv"   # follower counts (see /audience)
 .\run.cmd metrics       # rebuild order_profit + daily_metrics
 .\run.cmd sync          # incremental all sources
 .\run.cmd backfill --since=2025-10-01 --source=shopify|skio|stripe|ads
@@ -69,9 +71,26 @@ point back here.
    `lib/auth/capabilities.ts` is the single definition of who sees what. A missed page
    leaks financial or customer data rather than merely miscalculating.
 
+   Applies to the `/ask` AI analyst too, where the stakes are higher: it is one endpoint
+   that can reach every metric, driven by a model reading the user's own words. So the
+   boundary is **the toolset, not the prompt** — a role's forbidden tools are absent from
+   the request, and each handler re-checks anyway. Adding a tool means adding an entry to
+   `ANALYST_TOOLS` in `lib/ai/analyst.ts` with the capability that gates it;
+   `buildAnalystTools` throws if the registry and the implementations disagree. Never
+   give the agent raw SQL — rules 1 and 4 exist because hand-written queries looked right.
+
+
 8. **Never quote a margin figure without naming the boundary.** Which revenue classes
    bear cost is a live setting (`/costs`); the same period legitimately reads +$85K,
    −$15K or −$30K. `/profit` and `/international` display which one is active.
+
+9. **Never plot two different-scale measures on two y-axes.** Index them to a common base
+   instead (`indexToBase` in `metrics/audience-growth.ts`). With a dual axis the crossover
+   point and the gap between the lines both follow from where you happened to put the two
+   scales, so the chart can be made to show any relationship you like. Related, and the
+   reason `/audience` leads with the smaller number: correlate period-over-period
+   **changes**, never levels — two series that both trend upward correlate near 1.0
+   whether or not they have anything to do with each other.
 
 ---
 
@@ -111,12 +130,19 @@ reconcile against a second surface. Several bugs here passed every test.
 
 ## Blocked, don't retry
 
-- **Meta API** — a **Meta enforcement action** on the app or business. **Nothing to fix in
-  code, and nothing to rebuild.** The token is `Valid: True` per Meta's own debugger —
-  System User, non-expiring, `ads_read` + `read_insights`, app `28698775013059115`. Ruled
-  out and not worth re-testing: a new token (identical failure), and an API version sunset
-  (identical `code=200` on v20.0–v26.0). **Run `run.cmd check:meta`** — it separates token /
-  app / scope causes and prints the ordered remediation. Detail in `HANDOFF.md` §5.2.
+- ~~**Meta API** — enforcement action~~ **CLEARED 11 Aug 2026.** The block lifted; two
+  consecutive `check:meta` runs pass, `/me` and the ad-account read both succeed on v21.0,
+  account `active`, `ads_read` + `read_insights` present. **The stored ad data is still the
+  stale, ~3x-inflated set from the 30 Jul sync** — re-sync with
+  `backfill --since=2025-10-01 --source=ads` then `metrics` before quoting any Meta
+  conversion figure.
+- **Instagram organic metrics — still blocked, and separately from the above.** Follower
+  count, reach, and per-post engagement need `instagram_basic`,
+  `instagram_manage_insights`, `pages_show_list` and `pages_read_engagement`; all four are
+  missing from the token and the app sees **0 Pages**. Now actually requestable, since API
+  access is back. ⚠️ Granting them will **not** backfill history — Instagram's
+  `follower_count` insight is a rolling ~30-day window, so `/audience` takes historical
+  follower numbers via `import:social`. See `metrics/audience-growth.ts`.
 - **ShopifyQL `shipping_labels`** — needs `read_reports` *and* Level 2 protected customer
   data access. Non-fatal by design; shipping falls back to rate rules.
 
