@@ -253,12 +253,18 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
    `check:deploy` — it verifies config, database, data, metrics freshness and every
    connector, and names the fix for anything wrong.
 2. **Add the team** via `/team`, using the narrowest role that does the job.
-3. **Re-sync Meta — the block has cleared, so this is actionable now and is the single
-   highest-value item on this list.** `backfill --since=2025-10-01 --source=ads`, then
-   `metrics`. Until it runs, every Meta conversion figure in the app is the stale
-   ~3x-inflated set from 30 July. Note this does *not* unblock the social engagement
-   dashboard or `/audience`: those need the four Instagram/Pages scopes, which are a
-   separate grant and still missing (§4).
+3. ~~**Re-sync Meta**~~ ✅ **DONE 11 Aug 2026.** `backfill --since=2025-10-01 --source=ads`
+   then `metrics`. 6,774 rows, window now to 11 Aug. On identical dates spend held steady
+   (+0.4%, late-attribution settling) while platform conversions fell **8,116 → 2,039**,
+   a 3.98x reduction — so the only thing that changed is the overlapping-action-type
+   dedup, which is what should have changed. The sanity ceiling now passes: 2,412
+   conversions against 2,768 real paid orders. Headline numbers restated at the foot of
+   this file.
+   - ⚠️ **Still to do:** the attributed paid-meta ROAS band (0.15x–0.61x) was computed on
+     the old inflated counts and has not been recomputed. Re-read `/marketing` before
+     quoting it.
+   - This did **not** unblock the social engagement dashboard or `/audience` — those need
+     the four Instagram/Pages scopes, a separate grant, still missing (§4).
 4. **Trace the free-acquisition route.** 306 of 877 mature Issue-05 quarterly subscribers
    have **no paid Shopify order at all**, and the mechanism isn't visible in
    `discount_codes` — a $0 selling plan? an automatic discount? a comp converted to a
@@ -355,11 +361,26 @@ only `build` and anything touching the database need one.
 
 ## Headline numbers — quote these with their caveats, never bare
 
-- Revenue (net, Shopify paid ex-VAT + Stripe): **$152,204**
-- Ad spend **$29,524** · **MER 5.16** · aMER 2.54 · blended CAC **$7.72**
-- CM1 $119,918 / CM2 **$92,169** / CM3 $62,645 — *paid-order boundary; `/profit` can show
-  a different one on purpose, and print COGS is a placeholder*
-- Attributed paid-meta ROAS **0.15×–0.61×** — a band, not a point estimate
+**Restated 11 Aug 2026 after the Meta re-sync.** Ad spend rose because the window now runs
+to 11 Aug rather than 30 Jul, so every spend-derived ratio moved. Revenue is unchanged.
+The old figures below the line are kept for one release so a number quoted last week can
+be traced rather than looking like a mistake.
+
+- Revenue (net, Shopify paid ex-VAT + Stripe): **$152,204** — unchanged
+- Ad spend **$33,280** · **MER 4.57** · aMER 2.25 · blended CAC **$8.71**
+- CM1 $120,060 / CM2 **$92,279** / CM3 $58,999 · CM3 **38.8%** — *paid-order boundary;
+  `/profit` can show a different one on purpose, and print COGS is a placeholder. 746
+  units still have no cost record, so margin is overstated for those.*
+- Meta platform-reported conversions **2,412** over 2025-10-01 → 2026-08-11, against
+  **2,768** real paid orders in the same window. Now physically possible; the pre-re-sync
+  figure was 8,116, which was not. Take Meta's own attribution as an upper bound, not a
+  measurement.
+- Attributed paid-meta ROAS **0.15×–0.61×** — a band, not a point estimate. ⚠️ This band
+  predates the re-sync and has not been recomputed; the underlying conversion counts fell
+  ~4×, so treat it as stale until `/marketing` is re-read.
+
+*Superseded (pre-re-sync, window to 30 Jul): ad spend $29,524 · MER 5.16 · aMER 2.54 ·
+CAC $7.72 · CM1 $119,918 / CM2 $92,169 / CM3 $62,645 · Meta conversions 8,116.*
 - Quarterly plan loses **43.7% at the first rebill**. ⚠️ **1,981 of 3,468 subscriptions
   have never faced a renewal** — the annual plan is untested until ~Oct 2026, so don't
   present a base-wide renewal rate
