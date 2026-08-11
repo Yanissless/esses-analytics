@@ -3,7 +3,8 @@
 **Written:** 11 August 2026 · supersedes the 6 August version of this file
 **From:** Sam's build sessions (9 of them, all on Windows)
 **To:** the next Claude Code session — Sam's, or **Johnny's on his Mac**
-**Commit this describes:** `4f813bc` (17th on `master`) · working tree clean
+**Commit this describes:** the head of `master`, working tree clean — `git log -1`
+(chasing its own hash in this line only ever produces a stale one)
 
 This is the file to read first. It answers, in order: what we're building, where the code
 is, what's mid-flight, what already failed, and what I'd do next. Nothing is
@@ -58,7 +59,7 @@ external blockers.
 - **218 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
   unused-import warnings) · `build` clean across **17 routes**
 - Running against live data: 8,130 countable orders, $152,204 net revenue, MER 5.16
-- Git: **17 commits on `master`**, working tree clean, **no remote yet** — that's Part 1
+- Git: **~18 commits on `master`**, working tree clean, **no remote yet** — that's Part 1
   of `DEPLOY.md`. The history is worth reading; each message explains *why*, not what.
 - Stack: Next.js 16 App Router (`middleware` is now `proxy.ts`) · TypeScript · Tailwind v4
   · Drizzle + Postgres 17 · Vitest · pnpm
@@ -240,10 +241,9 @@ but v21.0 will sunset eventually and right now that's a code change rather than 
 
 Paste this to a fresh Claude Code session:
 
-> Read `START-HERE.md`, then `CLAUDE.md`. We're at commit `4f813bc` with a clean tree,
-> 218 tests passing. I'm doing <the thing>. Meta is blocked by a Meta-side enforcement
-> action — don't try to fix it in code. Check `git log -1` first in case this file is
-> behind.
+> Read `START-HERE.md`, then `CLAUDE.md`, then `git log -1` to see where we are.
+> Clean tree, 218 tests passing. I'm doing <the thing>. Meta is blocked by a Meta-side
+> enforcement action — don't try to fix it in code.
 
 Then:
 
@@ -263,7 +263,7 @@ Then:
 3. **Ask Sam to rotate the Stripe and Skio keys** as he shares them. Both passed through a
    chat window during development and should be treated as exposed.
 4. **Set your own git identity before your first commit**, or it fails with "Author
-   identity unknown". The existing 17 commits were authored explicitly rather than from a
+   identity unknown". The existing commits were authored explicitly rather than from a
    global config, so there's nothing set in this repo — deliberately, so your commits are
    attributed to you and not to Sam:
 
