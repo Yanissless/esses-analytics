@@ -1,10 +1,42 @@
 # Putting Esses Analytics online — step by step
 
 Written to be followed start to finish with no prior knowledge. Every command is
-copy-paste ready for **Windows PowerShell**, which is what's on this machine.
+copy-paste ready for **Windows PowerShell**, which is what the app was built on.
+
+**On a Mac? Read the next section first** — the steps are identical, only the command
+syntax differs, and there are exactly three differences.
 
 **Time:** about an hour of doing things, plus 15–20 minutes of waiting while data loads.
 **Cost:** £0 — every service below has a free tier that comfortably fits this app.
+
+---
+
+## 🍎 If you're on a Mac (Johnny)
+
+Nothing about the deployment changes — GitHub, Vercel, Neon and DNS are all websites and
+behave the same. Only the three shell conventions below differ. Translate as you read;
+everything else in this file is literal.
+
+| This file says (PowerShell) | Type this instead (Terminal / zsh) |
+|---|---|
+| `.\run.cmd db:migrate` | `./run.sh db:migrate` |
+| `$env:DATABASE_URL = "postgresql://..."` | `export DATABASE_URL="postgresql://..."` |
+| `Invoke-WebRequest -Method POST -Uri "…" -Headers @{"x-cron-secret" = $env:CRON_SECRET}` | `curl -X POST -H "x-cron-secret: $CRON_SECRET" "…"` |
+
+Also:
+
+- **Opening a terminal in the right folder:** open **Terminal**, then
+  `cd ~/Downloads/esses-analytics` (or wherever you unzipped it). Not File Explorer.
+- **First run only**, make the launcher executable if macOS complains:
+  `chmod +x run.sh`
+- `export VAR="…"` lasts only as long as that Terminal window, exactly like `$env:` does.
+- You need **Node 20 or newer**: `brew install node` then `corepack enable pnpm`.
+  `./run.sh` will tell you if it's missing.
+- Paths in this file like `C:\Users\samwi\esses-analytics\.env` refer to **Sam's** machine.
+  Your copy of `.env` goes in the root of your unzipped folder, same filename.
+
+The `run.sh` launcher is a thin wrapper around `pnpm` — if pnpm is already on your PATH,
+`pnpm db:migrate` works just as well.
 
 ---
 

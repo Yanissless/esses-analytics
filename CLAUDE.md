@@ -28,6 +28,9 @@ This is **Windows PowerShell**. There is no inline env-var prefix — `FOO=bar c
 Use `$env:FOO = "bar"` on its own line. Scripts run via `tsx` need **relative** imports
 (`@/*` is Next-only).
 
+**On macOS/Linux, read every `.\run.cmd x` as `./run.sh x`** — same scripts, POSIX
+launcher — and `$env:FOO = "bar"` as `export FOO="bar"`. `DEPLOY.md` has a Mac section.
+
 ---
 
 ## Hard rules

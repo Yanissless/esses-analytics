@@ -25,6 +25,7 @@ if "%~1"=="" (
   echo   check:deploy     verify config, database, data and connectors
   echo   check:shopify    verify Shopify auth + scopes
   echo   check:ads        verify Meta credentials
+  echo   check:meta       diagnose WHY Meta is failing ^(token vs app vs scope^)
   echo   db:migrate       create/update database tables
   echo   db:seed          create the first admin login
   echo   backfill         load history  --since=2025-10-01 --source=shopify
