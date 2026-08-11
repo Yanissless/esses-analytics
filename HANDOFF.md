@@ -1,6 +1,14 @@
-# Esses Analytics — Session Handoff
+# Esses Analytics — Session Archive
 
-**Last updated:** 2026-08-06 (session 8)
+> 👉 **This is the archive, not the handoff.** Read **`START-HERE.md`** first — it's the
+> current state in five pages. This file is ~70KB of accumulated detail across nine
+> sessions, organised by section number so `START-HERE.md` and `CLAUDE.md` can point into
+> it. Jump to a section; don't read it front to back.
+>
+> (On Windows `handoff.md` and `HANDOFF.md` are the same file — don't create a lowercase
+> one, it overwrites this.)
+
+**Last updated:** 2026-08-11 (session 9) · earlier header text below is from session 8
 **Project root:** `C:\Users\samwi\esses-analytics`
 **Status:** Phases 1–9 built. Marketing/reconciliation, Churn & cohorts, Social,
 Personas and Forecast & goals, with a live margin-boundary setting and COGS
