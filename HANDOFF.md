@@ -809,7 +809,75 @@ Development mode with the token's user no longer an admin/tester.
 remediation path for whichever cause it detects — token vs app vs missing scope, which
 need completely different fixes.
 
-### 🔴 Updated 2026-08-10 — the plan is now a clean rebuild, not a repair
+### 🔴 Updated 2026-08-11 — CONFIRMED: enforcement action. Do not rebuild.
+
+**This supersedes the "clean rebuild" advice below it, which was written before the app
+could be identified. Do not rebuild — the existing setup is already correct.**
+
+Meta's own Access Token Debugger
+(`developers.facebook.com/tools/debug/accesstoken/`, which authenticates with the viewer's
+Facebook login rather than the token, so it works even when the API refuses) reports:
+
+| Field | Value |
+|---|---|
+| App | **Esses Analytics** — id `28698775013059115` |
+| System user | `esses analytics sync` (id 122106480801425689) |
+| Type | **System User** |
+| Issued / Expires | 2026-07-27 / **Never** |
+| Valid | **True** |
+| Scopes | `ads_read`, `read_insights`, `public_profile` |
+
+So the credential is exactly what we would have built: system-user, non-expiring, correct
+scopes. **Rebuilding would discard a good configuration** and, if the block is at business
+level, hit the same wall.
+
+**Ruled out — do not re-test:**
+
+- **API version sunset.** Identical `code=200` on **v20.0 through v26.0**, including the
+  v26.0 the debugger itself uses, across `/me`, the ad account, `/insights`, the app object
+  and `/debug_token`. A version bump fixes nothing.
+- **The token, the scopes, the ad account.** A valid token with `ads_read` refused on every
+  endpoint of every version is a blanket bar, i.e. enforcement.
+
+**When it broke:** `sync_runs` holds exactly three Meta runs, all on **2026-07-30** (one
+success, 6,195 rows; two transient `code 2` failures). `ad_spend` covers 2025-10-01 →
+2026-07-30. It was already blocked when first tested on **2026-08-04**. **So the block
+landed between 30 Jul and 4 Aug 2026** — a five-day window to search Meta email and
+notifications, which is where the actual reason will be stated.
+
+⚠️ **The "Get Started" tell — this cost a detour, don't repeat it.** On
+`developers.facebook.com`, the top-right button reads **"My Apps"** for a registered
+developer and **"Get Started"** for someone who has never registered. Sam's showed "Get
+Started", which is why *both* app creation *and* opening the app by direct URL silently
+redirected him. **Business Suite permissions do not register you as a developer** — they are
+separate systems. Check that button before diagnosing anything else in the developer
+dashboard.
+
+**Remediation, in order — the order matters:**
+
+1. **Register as a Meta developer** (the "Get Started" button). Until it reads "My Apps",
+   every app URL redirects.
+2. **Grant yourself a role via the business**, not via the original creator:
+   Business Settings → **Accounts → Apps** → Esses Analytics → **Add people** → Administrator.
+   If the app isn't listed there it was never added to the Esses business, and only its
+   creator can let anyone in.
+3. **Open `developers.facebook.com/apps/28698775013059115/`** and read the alert banner.
+   Check Settings → Advanced for an overdue **Data Use Checkup**, and App Review →
+   Permissions and Features for anything reverted to Standard Access.
+4. **In parallel, needs no developer registration:** `business.facebook.com/accountquality`
+   (Business Support Home). Restrictions and the **appeal** live here, not in the developer
+   dashboard. This may answer it outright.
+
+**No code changes are needed either way.** The connector's own conversion double-counting
+bug was fixed in §4.3; it has only ever been waiting on access.
+
+⚠️ **Note for the social work:** the token carries **no** Instagram or Pages scopes. Once
+access is restored, §5.2a's `instagram_basic`, `instagram_manage_insights`,
+`pages_show_list` and `pages_read_engagement` still need adding.
+
+---
+
+### Superseded 2026-08-10 — "clean rebuild" (kept for the reasoning, do not follow)
 
 Sam was granted **Business Suite** permissions and still could not find the app. Re-tested
 after that: **unchanged, still code 200.** That resolved the ambiguity, because Meta has

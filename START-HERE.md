@@ -101,11 +101,17 @@ The ones most likely to waste your time:
   code **200** ("API access blocked"); a malformed token returns **190**, and
   `/debug_token` fails too — that endpoint answers even for expired tokens. **A new token
   from the same app will fail identically.**
-  **Resolved as of 2026-08-10:** the app is outside Esses' control — Meta's Business Suite
-  and developer-app permissions are separate systems, so nobody here has a developer role
-  on it, and it's blocked regardless. **Sam is rebuilding on a new app with a non-expiring
-  System User token.** Full steps in §5.2. Run **`run.cmd check:meta`** to see where it
-  stands; it diagnoses token vs app vs missing scope and prints the fix for each.
+  **Confirmed 2026-08-11 — it's a Meta enforcement action, and there is nothing to
+  rebuild.** Meta's own debugger reports the token **Valid: True** — System User, never
+  expires, `ads_read` + `read_insights`, on app **Esses Analytics** (`28698775013059115`).
+  Also ruled out: an API version sunset (identical error on **v20.0–v26.0**). The block
+  landed between **30 Jul and 4 Aug 2026**. Remediation is Meta-UI only and order-dependent
+  — §5.2. Run **`run.cmd check:meta`**; it separates token / app / scope causes and prints
+  the ordered fix.
+  ⚠️ **The tell that cost us a detour:** on `developers.facebook.com` the top-right button
+  reads "My Apps" for a registered developer and **"Get Started"** if you've never
+  registered — in which case every app URL silently redirects, including app creation.
+  Business Suite permissions do **not** register you as a developer.
 - **ShopifyQL `shipping_labels`** needs `read_reports` *and* Level 2 protected customer
   data access. Deliberately non-fatal — shipping falls back to rate-rule estimates.
 

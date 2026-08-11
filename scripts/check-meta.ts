@@ -104,35 +104,50 @@ async function main() {
 
   if (verdict === "app") {
     console.log(`
-  DIAGNOSIS: the APP or the business is blocked, not the token (error code 200).
+  DIAGNOSIS: a Meta enforcement action on the APP or the BUSINESS. Not the token, and not
+  anything you can fix by reconfiguring.
 
-  A malformed token returns code 190; ours returns 200, which is Meta's permission and
-  app-level family. Note that /debug_token normally answers even for EXPIRED tokens, so if
-  that also fails the refusal is happening above the credential.
+  Established 2026-08-10/11, so none of this needs re-testing:
 
-  *** A new token from the same app will fail in exactly the same way. Don't start there. ***
+    - The token is FINE. Meta's own debugger reports Valid: True. It is a System User
+      token, it never expires, and it carries ads_read + read_insights.
+        App:  Esses Analytics  (id 28698775013059115)
+        User: esses analytics sync
+    - NOT an API version sunset. Identical code 200 on v20.0 through v26.0, including the
+      v26.0 the debugger itself uses, across /me, the ad account, insights, the app object
+      and debug_token.
+    - So a valid token with correct scopes is refused on every endpoint of every version.
+      That is a blanket bar, i.e. enforcement.
 
-  Find out which app the token belongs to first — you cannot fix an app you can't locate:
+  *** Do NOT generate a new token, and do NOT build a new app. The existing setup is
+      already correct — a rebuild discards a good configuration and, if the block is at
+      business level, hits the same wall. ***
 
-    1. Go to  developers.facebook.com/tools/debug/accesstoken/
-    2. Paste the token, click Debug.
-       That page authenticates with YOUR Facebook login, not the token, so it usually
-       reports the App name and App ID even when the API refuses the token.
-    3. Note the App ID. If the app isn't listed under 'My Apps', you have no role on it —
-       whoever created it must add you as an Administrator, or you create a new app.
+  Fixing it needs Meta's UI, in this order. The order matters:
 
-  Then, on that app:
-    - Read the alert banner at the top of its dashboard; Meta usually states the problem.
-    - Settings → Advanced: complete any overdue Data Use Checkup. This is the single most
-      common cause of this exact error, and it disables API access when it lapses.
-    - App Review → Permissions and Features: look for anything reverted to Standard Access.
-    - Check whether the app is in Development rather than Live mode. In Development only
-      users with an explicit app role can call the API.
-    - business.facebook.com → Business Settings → Security Centre: check Business
-      Verification hasn't lapsed.
+    1. Are you a registered Meta developer? On developers.facebook.com, the top right
+       must read 'My Apps'. If it reads 'Get Started' you have never registered, and
+       EVERY app URL will silently redirect you — including app creation. Register first;
+       nothing else works until that button changes.
 
-  If the app can't be found or recovered, starting fresh is usually faster than archaeology
-  — see the 'clean rebuild' steps in HANDOFF.md section 5.2.
+    2. Give yourself a role on the app, via the business rather than its original creator:
+       business.facebook.com → Business Settings → Accounts → Apps → Esses Analytics →
+       Add people → yourself as Administrator.
+       If the app is NOT listed there it was never added to the Esses business, and only
+       its creator can grant access.
+
+    3. Now open developers.facebook.com/apps/28698775013059115/ and read the alert banner.
+       Also check Settings → Advanced for an overdue Data Use Checkup (a common cause of
+       exactly this error), and App Review → Permissions and Features for anything reverted
+       to Standard Access.
+
+    4. In parallel — this needs no developer registration and may answer it outright:
+       business.facebook.com/accountquality  (Business Support Home). Restrictions and the
+       appeal button live here, not in the developer dashboard.
+
+    5. Search Meta email and notifications for 30 Jul - 4 Aug 2026. The only successful ads
+       sync ran 2026-07-30; it was already blocked by 2026-08-04. Meta normally emails
+       before restricting, and that email names the cause.
 `);
     process.exitCode = 1;
     return;
