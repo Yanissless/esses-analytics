@@ -39,5 +39,9 @@ if "%~1"=="" (
   exit /b 1
 )
 
+REM The dev server builds into its own directory so a concurrent `run.cmd build` can't
+REM pull the ground out from under a browser session someone is using. See next.config.ts.
+if /I "%~1"=="dev" set "NEXT_DIST_DIR=.next-dev"
+
 call "%NPM_GLOBAL%\pnpm.cmd" %*
 endlocal

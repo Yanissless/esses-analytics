@@ -15,6 +15,9 @@
 
 # next.js
 /.next/
+# The dev server's own build dir, so a `build` can't break a running `dev`.
+# See next.config.ts and the `dev` branch in run.cmd.
+/.next-dev/
 /out/
 
 # production
