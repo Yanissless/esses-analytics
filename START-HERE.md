@@ -58,7 +58,8 @@ external blockers.
 
 - **254 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
   unused-import warnings) · `build` clean across **20 routes**
-- Running against live data: 8,130 countable orders, $152,204 net revenue, MER 5.16
+- Running against live data (2025-10-01 → 2026-08-12): 7,895 countable orders, $155,062 net
+  revenue, MER 4.61x. Full figures with their caveats at the foot of this file.
 - Git: **~18 commits on `master`**, working tree clean, **no remote yet** — that's Part 1
   of `DEPLOY.md`. The history is worth reading; each message explains *why*, not what.
 - Stack: Next.js 16 App Router (`middleware` is now `proxy.ts`) · TypeScript · Tailwind v4
@@ -260,9 +261,14 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
    dedup, which is what should have changed. The sanity ceiling now passes: 2,412
    conversions against 2,768 real paid orders. Headline numbers restated at the foot of
    this file.
-   - ⚠️ **Still to do:** the attributed paid-meta ROAS band (0.15x–0.61x) was computed on
-     the old inflated counts and has not been recomputed. Re-read `/marketing` before
-     quoting it.
+   - The ROAS band needed no code change: `/marketing` computes it live from
+     `attribution/reconciliation.ts`, so it was never showing a stale figure — only this
+     file was. It now reads **0.13x–0.53x**. What the re-sync actually fixed is the
+     reconciliation *narrative*: Meta's claim is now 11.7x our provable count rather than
+     larger than the store's entire order book.
+   - Followed by `run.cmd sync` to bring orders level with ad spend, because the backfill
+     had left a week of spend with no orders to earn against — see the note at the foot of
+     this file.
    - This did **not** unblock the social engagement dashboard or `/audience` — those need
      the four Instagram/Pages scopes, a separate grant, still missing (§4).
 4. **Trace the free-acquisition route.** 306 of 877 mature Issue-05 quarterly subscribers
@@ -361,26 +367,34 @@ only `build` and anything touching the database need one.
 
 ## Headline numbers — quote these with their caveats, never bare
 
-**Restated 11 Aug 2026 after the Meta re-sync.** Ad spend rose because the window now runs
-to 11 Aug rather than 30 Jul, so every spend-derived ratio moved. Revenue is unchanged.
-The old figures below the line are kept for one release so a number quoted last week can
-be traced rather than looking like a mistake.
+**Restated 12 Aug 2026, window 2025-10-01 → 2026-08-12.** Every surface agrees on this
+window — `/marketing`, `/profit` and `run.cmd metrics` all read the same MER. That was not
+true for a few hours after the ads backfill: `ad_spend` ran a week past the last synced
+order, so the page clipped to the order window and read MER 4.90x while `metrics` read
+4.57 on the wider one. A `run.cmd sync` brought orders forward and the discrepancy closed.
+**If two surfaces ever disagree on MER again, check `max(processed_on)` against
+`max(ad_spend.date)` first** — spend with no orders to earn against is the usual cause.
 
-- Revenue (net, Shopify paid ex-VAT + Stripe): **$152,204** — unchanged
-- Ad spend **$33,280** · **MER 4.57** · aMER 2.25 · blended CAC **$8.71**
-- CM1 $120,060 / CM2 **$92,279** / CM3 $58,999 · CM3 **38.8%** — *paid-order boundary;
-  `/profit` can show a different one on purpose, and print COGS is a placeholder. 746
+- Revenue (net, Shopify paid ex-VAT + Stripe): **$155,062**
+- Ad spend **$33,633** · **MER 4.61x** · aMER 2.23x · blended CAC **$8.22**
+- CM1 $122,860 / CM2 **$95,053** / CM3 $61,421 · CM3 **39.6%** — *paid-order boundary;
+  `/profit` can show a different one on purpose, and print COGS is a placeholder. 747
   units still have no cost record, so margin is overstated for those.*
-- Meta platform-reported conversions **2,412** over 2025-10-01 → 2026-08-11, against
-  **2,768** real paid orders in the same window. Now physically possible; the pre-re-sync
-  figure was 8,116, which was not. Take Meta's own attribution as an upper bound, not a
-  measurement.
-- Attributed paid-meta ROAS **0.15×–0.61×** — a band, not a point estimate. ⚠️ This band
-  predates the re-sync and has not been recomputed; the underlying conversion counts fell
-  ~4×, so treat it as stale until `/marketing` is re-read.
+- 8,413 orders costed; **7,895 countable**
+- Attributed paid-meta ROAS **0.13x–0.53x** — a band, not a point estimate. Floor is what
+  we can prove; ceiling assumes every ambiguous untagged social order was Meta's. UTM
+  tagging collapses it to one number.
+- Meta's own claim: **2,449** conversions at ROAS 0.71x, against **209** we can
+  corroborate and 1,309 more that are plausible-but-unprovable — so it claims 11.7x our
+  count and a 2,240-conversion gap stays unexplained. That gap is view-through and
+  cross-device, which we have no way to observe. **This is now a credible disagreement
+  rather than an impossible one:** pre-re-sync Meta claimed 8,116 conversions in a window
+  where the store took fewer orders in total. Treat its ROAS as its own claim.
 
-*Superseded (pre-re-sync, window to 30 Jul): ad spend $29,524 · MER 5.16 · aMER 2.54 ·
-CAC $7.72 · CM1 $119,918 / CM2 $92,169 / CM3 $62,645 · Meta conversions 8,116.*
+*Superseded (pre-re-sync, window to 30 Jul): revenue $152,204 · ad spend $29,524 · MER
+5.16 · aMER 2.54 · CAC $7.72 · CM1 $119,918 / CM2 $92,169 / CM3 $62,645 · Meta conversions
+8,116 · ROAS band 0.15x–0.61x. Kept for one release so a figure quoted last week can be
+traced rather than looking like a mistake.*
 - Quarterly plan loses **43.7% at the first rebill**. ⚠️ **1,981 of 3,468 subscriptions
   have never faced a renewal** — the annual plan is untested until ~Oct 2026, so don't
   present a base-wide renewal rate
