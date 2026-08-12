@@ -188,6 +188,23 @@ export interface AudiencePoint {
   observed: boolean;
   /** Net active subscriptions at the end of this week. */
   subscribers: number;
+  /**
+   * Followers per subscriber this week.
+   *
+   * The honest way to put two different-scale totals on one chart: a ratio is a single
+   * series with a single axis, so it needs no second scale and cannot be manipulated by
+   * where that scale is placed. Falling means subscribers are growing faster than the
+   * following — which, for a business that sells subscriptions, is the direction you want.
+   */
+  followersPerSubscriber: number | null;
+}
+
+/** Where the two totals stand right now, for the headline tiles. */
+export interface AudienceLatest {
+  weekStart: string | null;
+  followers: number | null;
+  subscribers: number | null;
+  followersPerSubscriber: number | null;
 }
 
 export interface IndexedPoint {
@@ -201,6 +218,8 @@ export interface AudienceGrowthAnalysis {
   points: AudiencePoint[];
   /** Ready to plot on a single axis — see `indexToBase` for why this exists. */
   indexed: IndexedPoint[];
+  /** Current standing of both totals. */
+  latest: AudienceLatest;
   /** Weeks with a real follower reading AND a subscriber figure. */
   pairedWeeks: number;
   followerGrowthRate: number | null;
@@ -318,11 +337,16 @@ export async function getAudienceGrowth(platform = "instagram"): Promise<Audienc
   const weeks = [...new Set([...subsByWeek.keys(), ...followersByWeek.keys()])].sort();
   const points: AudiencePoint[] = weeks.map((weekStart) => {
     const f = followersByWeek.get(weekStart);
+    const subscribers = subsByWeek.get(weekStart) ?? 0;
+    const followers = f?.followers ?? null;
     return {
       weekStart,
-      followers: f?.followers ?? null,
+      followers,
       observed: f?.observed ?? false,
-      subscribers: subsByWeek.get(weekStart) ?? 0,
+      subscribers,
+      // ratio() returns null at a zero denominator — rule 3. No subscribers yet is
+      // "not measurable", not "infinite followers each".
+      followersPerSubscriber: followers === null ? null : ratio(followers, subscribers),
     };
   });
 
@@ -383,9 +407,22 @@ export async function getAudienceGrowth(platform = "instagram"): Promise<Audienc
     subscriberIndex: subscriberIdx[i],
   }));
 
+  // Latest reads the last week that actually has a follower observation, not simply the
+  // last week in the series: the subscriber series runs to today while a hand-entered
+  // follower series may stop weeks earlier, and pairing today's subscriber count with a
+  // month-old follower count would quietly overstate the ratio.
+  const lastObserved = [...points].reverse().find((p) => p.followers !== null) ?? null;
+  const latest: AudienceLatest = {
+    weekStart: lastObserved?.weekStart ?? null,
+    followers: lastObserved?.followers ?? null,
+    subscribers: lastObserved?.subscribers ?? null,
+    followersPerSubscriber: lastObserved?.followersPerSubscriber ?? null,
+  };
+
   return {
     points,
     indexed,
+    latest,
     pairedWeeks: paired.length,
     followerGrowthRate: periodGrowthRate(fs),
     subscriberGrowthRate: periodGrowthRate(ss),

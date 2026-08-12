@@ -301,6 +301,175 @@ export function IndexedGrowthChart({ points }: { points: IndexedPoint[] }) {
 }
 
 /**
+ * One absolute total, on its own axis.
+ *
+ * Used as a small multiple: followers (~18,000) and subscribers (~2,000) each get their
+ * own chart rather than sharing one with two y-scales. Two charts side by side let you
+ * read each real number off its own axis and still compare shapes — which is what a dual
+ * axis pretends to offer while actually making the gap between the lines an artefact of
+ * scale placement. A single series, so no legend: the card title names it.
+ */
+export function AbsoluteSeriesChart({
+  weeks,
+  values,
+  series,
+  label,
+  precision = 0,
+}: {
+  /** ISO week starts, parallel to `values`. */
+  weeks: string[];
+  /**
+   * The series itself, already extracted server-side.
+   *
+   * Deliberately plain data rather than a `(point) => number` accessor: props crossing
+   * into a Client Component must be serializable, and a function is not. That fails at
+   * REQUEST time with "Functions cannot be passed directly to Client Components" —
+   * neither `tsc` nor `build` catches it, only actually loading the page does. Same family
+   * as rule 6 in CLAUDE.md, one boundary further along.
+   */
+  values: Array<number | null>;
+  /**
+   * Which categorical slot to paint, as a string rather than the colour itself.
+   *
+   * The palette cannot be exported from this module and read by the page: a Server
+   * Component importing a plain value from a `"use client"` file receives a client
+   * *reference*, not the object, so `colour.dark` is undefined at render. Another
+   * request-time-only failure that `tsc` and `build` both pass. So the client side owns
+   * the palette and the server just names the series.
+   */
+  series: "follower" | "subscriber";
+  label: string;
+  /** Decimal places. 0 for counts, 1 for the followers-per-subscriber ratio. */
+  precision?: number;
+}) {
+  const clip = useId().replace(/:/g, "");
+  const [hover, setHover] = useState<number | null>(null);
+  const h = 150;
+  const colour = series === "follower" ? FOLLOWER : SUBSCRIBER;
+
+  const format = (n: number) =>
+    precision === 0 ? Math.round(n).toLocaleString("en-US") : n.toFixed(precision);
+  const real = values.filter((v): v is number => v !== null);
+  if (real.length < 2) {
+    return <p className="text-sm text-neutral-500 dark:text-neutral-400">Not enough data yet.</p>;
+  }
+
+  const lo = Math.min(...real);
+  const hi = Math.max(...real);
+  // Absolute totals are NOT zero-based here: these are levels in the tens of thousands
+  // where the interesting movement is a few percent, and forcing zero would flatten the
+  // line into a straight edge. A line chart of a level carries no area-vs-baseline
+  // meaning, so this is honest — it would not be for bars.
+  const pad = (hi - lo) * 0.12 || Math.max(hi * 0.02, 1);
+  const yMin = Math.max(0, lo - pad);
+  const yMax = hi + pad;
+  const x = (i: number) =>
+    PAD.left + (weeks.length <= 1 ? 0 : (i / (weeks.length - 1)) * (W - PAD.left - 12));
+  const y = (v: number) => 12 + (1 - (v - yMin) / (yMax - yMin)) * (h - 12 - PAD.bottom);
+  const ticks = niceTicks(yMin, yMax, 3);
+
+  const path = segments(values)
+    .map((run) => run.map((p, k) => `${k === 0 ? "M" : "L"}${x(p.i)},${y(p.v)}`).join(" "))
+    .join(" ");
+
+  const active = hover === null ? null : values[hover];
+
+  return (
+    <figure className="relative m-0">
+      <style>{`@media (prefers-color-scheme: dark) {
+        .abs-${clip} { --c: ${colour.dark}; }
+      }`}</style>
+      <svg
+        viewBox={`0 0 ${W} ${h}`}
+        className={`abs-${clip} w-full`}
+        style={{ ["--c" as string]: colour.light }}
+        role="img"
+        aria-label={`${label} over time`}
+        onMouseLeave={() => setHover(null)}
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const px = ((e.clientX - rect.left) / rect.width) * W;
+          const t = (px - PAD.left) / (W - PAD.left - 12);
+          setHover(Math.max(0, Math.min(weeks.length - 1, Math.round(t * (weeks.length - 1)))));
+        }}
+      >
+        <clipPath id={clip}>
+          <rect x={PAD.left} y={0} width={W - PAD.left - 12} height={h} />
+        </clipPath>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line
+              x1={PAD.left}
+              x2={W - 12}
+              y1={y(t)}
+              y2={y(t)}
+              stroke="currentColor"
+              strokeWidth={0.5}
+              className="text-neutral-200 dark:text-neutral-800"
+            />
+            <text x={PAD.left - 6} y={y(t) + 3.5} textAnchor="end" className="fill-neutral-400 text-[10px]">
+              {format(t)}
+            </text>
+          </g>
+        ))}
+        {[0, weeks.length - 1].map((i) => (
+          <text
+            key={i}
+            x={x(i)}
+            y={h - 6}
+            textAnchor={i === 0 ? "start" : "end"}
+            className="fill-neutral-400 text-[10px]"
+          >
+            {shortDate(weeks[i])}
+          </text>
+        ))}
+        <g clipPath={`url(#${clip})`}>
+          <path d={path} fill="none" stroke="var(--c)" strokeWidth={2} />
+        </g>
+        {hover !== null && active !== null && (
+          <>
+            <line
+              x1={x(hover)}
+              x2={x(hover)}
+              y1={12}
+              y2={h - PAD.bottom}
+              stroke="currentColor"
+              strokeWidth={1}
+              className="text-neutral-300 dark:text-neutral-700"
+            />
+            <circle
+              cx={x(hover)}
+              cy={y(active)}
+              r={4.5}
+              fill="var(--c)"
+              stroke="#fff"
+              strokeWidth={2}
+              className="[stroke:#fff] dark:[stroke:#171717]"
+            />
+          </>
+        )}
+      </svg>
+      {hover !== null && active !== null && (
+        <div className="pointer-events-none absolute top-0 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-sm dark:border-neutral-700 dark:bg-neutral-900"
+          style={{
+            left: `${((x(hover) + 10) / W) * 100}%`,
+            transform: hover > weeks.length * 0.7 ? "translateX(-110%)" : undefined,
+          }}
+        >
+          <div className="font-medium text-neutral-700 dark:text-neutral-200">
+            {shortDate(weeks[hover])}
+          </div>
+          <div className="mt-0.5 text-neutral-600 dark:text-neutral-400">
+            {format(active)} {label.toLowerCase()}
+          </div>
+        </div>
+      )}
+    </figure>
+  );
+}
+
+
+/**
  * Correlation of follower change against subscriber change at each weekly lag.
  *
  * One series, so no legend — the heading names it. A tall bar at lag 0 means the two

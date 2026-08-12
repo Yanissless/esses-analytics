@@ -2,7 +2,13 @@ import { requireCapability } from "@/lib/auth/current-user";
 import { getAudienceGrowth, MIN_POINTS_FOR_R } from "@/metrics/audience-growth";
 import { Card, Stat, formatNum } from "../_components/ui";
 import { Nav } from "../_components/nav";
-import { AudienceTable, IndexedGrowthChart, LagProfileChart } from "./charts";
+import {
+  AbsoluteSeriesChart,
+  AudienceTable,
+  IndexedGrowthChart,
+  LagProfileChart,
+
+} from "./charts";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +32,10 @@ export default async function AudiencePage() {
   const growth = await getAudienceGrowth("instagram");
 
   const hasFollowerData = growth.points.some((p) => p.followers !== null);
+  // Extracted here rather than passed as an accessor: props crossing into a Client
+  // Component must be serializable, and a function is not — it fails at request time with
+  // an error neither tsc nor build reports. See the note in charts.tsx.
+  const weeks = growth.points.map((p) => p.weekStart);
   const measurable = growth.deltaCorrelation !== null;
   const best = growth.lag.best;
 
@@ -81,6 +91,39 @@ run.cmd import:social --platform=instagram --date=2026-08-11 --followers=18240`}
           </Card>
         ) : (
           <>
+            {/* Totals first — the plain "how big are we" question, before any ratio or
+                correlation. Both read from the last week with a real follower reading, so
+                they are the same week as each other. */}
+            <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-3">
+              <Stat
+                label="Total followers"
+                value={growth.latest.followers === null ? "—" : formatNum(growth.latest.followers)}
+                hint={
+                  growth.latest.weekStart
+                    ? `Instagram, week of ${growth.latest.weekStart}`
+                    : undefined
+                }
+                emphasis
+              />
+              <Stat
+                label="Total subscribers"
+                value={
+                  growth.latest.subscribers === null ? "—" : formatNum(growth.latest.subscribers)
+                }
+                hint="active, Skio + Stripe, same week"
+                emphasis
+              />
+              <Stat
+                label="Followers per subscriber"
+                value={
+                  growth.latest.followersPerSubscriber === null
+                    ? "—"
+                    : growth.latest.followersPerSubscriber.toFixed(1)
+                }
+                hint="falling is good — subscribers growing faster than the following"
+              />
+            </div>
+
             <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">
               <Stat
                 label="Follower growth / week"
@@ -111,6 +154,52 @@ run.cmd import:social --platform=instagram --date=2026-08-11 --followers=18240`}
                 }
               />
             </div>
+
+            {/* Absolute totals as small multiples — each on its own axis. Deliberately
+                NOT one chart with two y-scales: see the note under the pair. */}
+            <div className="mb-4 grid gap-4 md:grid-cols-2">
+              <Card title="Total followers" subtitle="Instagram, weekly. Own axis.">
+                <AbsoluteSeriesChart
+                  weeks={weeks}
+                  values={growth.points.map((p) => p.followers)}
+                  series="follower"
+                  label="followers"
+                />
+              </Card>
+              <Card title="Total subscribers" subtitle="Active, Skio + Stripe, weekly. Own axis.">
+                <AbsoluteSeriesChart
+                  weeks={weeks}
+                  values={growth.points.map((p) => p.subscribers)}
+                  series="subscriber"
+                  label="subscribers"
+                />
+              </Card>
+            </div>
+
+            <Card
+              title="Followers per subscriber"
+              subtitle="The two totals as one series — falling means subscribers are outpacing the following."
+              className="mb-4"
+            >
+              <AbsoluteSeriesChart
+                weeks={weeks}
+                values={growth.points.map((p) => p.followersPerSubscriber)}
+                series="follower"
+                label="followers per subscriber"
+                precision={1}
+              />
+              <p className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">
+                Why the two totals aren&apos;t drawn on one chart: at roughly{" "}
+                {growth.latest.followers && growth.latest.subscribers
+                  ? `${formatNum(growth.latest.followers)} against ${formatNum(growth.latest.subscribers)}`
+                  : "18,000 against 2,000"}{" "}
+                they are an order of magnitude apart, so sharing a chart would mean two
+                y-axes — and then where the lines cross and how far apart they sit follow
+                from where those axes were placed rather than from the business. Two charts
+                above give you each real number on its own scale; this ratio gives you the
+                comparison as a single series that can&apos;t be distorted that way.
+              </p>
+            </Card>
 
             <Card
               title="Growth, indexed to a common base"
