@@ -139,10 +139,15 @@ reconcile against a second surface. Several bugs here passed every test.
 - **Instagram organic metrics — still blocked, and separately from the above.** Follower
   count, reach, and per-post engagement need `instagram_basic`,
   `instagram_manage_insights`, `pages_show_list` and `pages_read_engagement`; all four are
-  missing from the token and the app sees **0 Pages**. Now actually requestable, since API
-  access is back. ⚠️ Granting them will **not** backfill history — Instagram's
-  `follower_count` insight is a rolling ~30-day window, so `/audience` takes historical
-  follower numbers via `import:social`. See `metrics/audience-growth.ts`.
+  missing from the token and the app sees **0 Pages**.
+  - 🕐 **Business verification is pending (12 Aug 2026) and is the current lead** — Meta
+    gates Advanced Access to permissions behind it, so don't keep hunting for a
+    misconfiguration until it clears. `Pages visible: 0` is a separate, fixable-now problem
+    (assign the Page to the System User). Detail in `START-HERE.md` §4.
+  - ⚠️ Granting the scopes will **not** backfill history — Instagram's `follower_count`
+    insight is a rolling ~30-day window and no endpoint returns a past day's total, so
+    `/audience` reconstructs levels from daily follows plus one anchor
+    (`import:social --meta-export=… --anchor=…`). See `metrics/audience-growth.ts`.
 - **ShopifyQL `shipping_labels`** — needs `read_reports` *and* Level 2 protected customer
   data access. Non-fatal by design; shipping falls back to rate rules.
 

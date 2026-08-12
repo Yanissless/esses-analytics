@@ -193,6 +193,23 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
   `instagram_manage_insights`, `pages_show_list` and `pages_read_engagement`. All four are
   missing from the token and the app sees **0 Pages**. Requesting them is now actually
   possible (it wasn't while the app was blocked) and it is Meta-UI work.
+  - 🕐 **BUSINESS VERIFICATION IS PENDING as of 12 Aug 2026 — this is the current lead.**
+    Sam found the business profile unverified while working through the app settings.
+    Meta gates **Advanced Access** to permissions behind business verification, so an
+    unverified business is a very plausible reason the four scopes cannot be attached to a
+    token no matter how the app is configured. Confirm it rather than assume: the app
+    dashboard's **App Review → Permissions and Features** list shows, per permission,
+    whether it needs verification, and **Business Settings → Security Centre** shows the
+    verification status. Verification typically takes a few business days.
+    **Do not keep hunting for a misconfiguration until this resolves** — the previous
+    detour on this connector cost two sessions chasing a cause that wasn't there.
+  - ⚡ **`Pages visible: 0` is INDEPENDENT of verification and fixable now.** It is asset
+    assignment, not permissions: Business Settings → Users → System Users →
+    `esses analytics sync` → Add Assets → Pages. Worth doing while verification is
+    pending, so that when it clears the only remaining step is generating a token.
+  - ⚠️ When that token is generated, tick **all six** scopes — the four above *plus*
+    `ads_read` and `read_insights`. A token minted with only the new four fixes Instagram
+    and silently breaks the ads sync.
   - ⚠️ **Granting the scopes will not backfill history.** Instagram's `follower_count`
     insight returns a rolling **~30-day window** — there is no endpoint for the follower
     count on an arbitrary past date. So a correlation against subscriber growth can only
