@@ -14,7 +14,7 @@ half-finished — every check passes at this commit.
 |---|---|
 | **`START-HERE.md`** | This file. The handoff. Current as of today. |
 | **`DEPLOY.md`** | The go-live walkthrough, step by step, no assumed knowledge. **Has a Mac section at the top.** |
-| **`CLAUDE.md`** | Auto-loaded by Claude Code. The 8 hard rules — each one exists because breaking it caused a real bug. |
+| **`CLAUDE.md`** | Auto-loaded by Claude Code. The 9 hard rules — each one exists because breaking it caused a real bug. |
 | **`HANDOFF.md`** | The deep archive: ~70KB across 9 sessions, every failed approach with section numbers. Read on demand, never front to back. |
 
 > **Naming note:** on Windows, `handoff.md` and `HANDOFF.md` are the *same file*. This
@@ -56,20 +56,21 @@ external blockers.
 
 **Phases 1–9 of 11 are built.** Every major dashboard from the brief exists.
 
-- **254 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
-  unused-import warnings) · `build` clean across **20 routes**
+- **274 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
+  unused-import warnings) · `build` clean across **21 routes**
 - Running against live data (2025-10-01 → 2026-08-12): 7,895 countable orders, $155,062 net
   revenue, MER 4.61x. Full figures with their caveats at the foot of this file.
-- Git: **~18 commits on `master`**, working tree clean, **no remote yet** — that's Part 1
+- Git: **~30 commits on `master`**, working tree clean, **no remote yet** — that's Part 1
   of `DEPLOY.md`. The history is worth reading; each message explains *why*, not what.
 - Stack: Next.js 16 App Router (`middleware` is now `proxy.ts`) · TypeScript · Tailwind v4
   · Drizzle + Postgres 17 · Vitest · pnpm
 
 ### Pages
 
-`/` Overview · `/profit` · `/marketing` · `/social` · `/audience` · `/customers` ·
-`/churn` · `/personas` · `/forecast` · `/international` · `/costs` · `/shipping` ·
-`/team` · `/ask` · `/account` · `/login` · `/api/health` · `/api/sync` · `/api/ai/ask`
+`/` Overview · `/profit` · `/marketing` · `/social` · `/audience` · `/journeys` ·
+`/customers` · `/churn` · `/personas` · `/forecast` · `/international` · `/costs` ·
+`/shipping` · `/team` · `/ask` · `/account` · `/login` · `/api/health` · `/api/sync` ·
+`/api/ai/ask`
 
 **`/ask`** is the AI analyst (Claude Opus 5): 24 read-only tools over the existing
 `metrics/*` functions, no SQL. Gated on `requireUser()` — every role may ask — but the
@@ -78,8 +79,18 @@ margin or individual customers (11 of 24 tools). `run.cmd check:analyst` calls e
 live and prints the boundary. Needs `ANTHROPIC_API_KEY`; without it the page says so and
 nothing else is affected.
 
-**`/audience`** correlates Instagram follower growth against subscriber growth. Currently
-has no follower data to draw — see §4.
+**`/audience`** — Instagram following against paying subscribers. Has real data as of
+12 Aug (43,300 followers, 15 Jul – 11 Aug, reconstructed from a Meta export). Carries the
+absolute totals, the indexed growth comparison, followers-per-subscriber, a lead/lag
+profile, and an audience-versus-orders geography table. Correlates on **daily** changes
+while there are too few weeks for a weekly read; it switches to weekly automatically at 12
+points and always shows both bases.
+
+**`/journeys`** — what attribution can and cannot see. A coverage page, deliberately not a
+path explorer: 71% of countable orders have no non-internal touchpoint (mostly API
+renewals and comps, which no tagging recovers), 23% are a single session, and 5.6% are
+multi-touch. Where a journey is one session all four attribution models agree by
+construction, so model choice only moves that 5.6%.
 
 ### Roles
 
@@ -334,7 +345,7 @@ but v21.0 will sunset eventually and right now that's a code change rather than 
 Paste this to a fresh Claude Code session:
 
 > Read `START-HERE.md`, then `CLAUDE.md`, then `git log -1` to see where we are.
-> Clean tree, 254 tests passing. I'm doing <the thing>. Meta's *ads* API access is back
+> Clean tree, 274 tests passing. I'm doing <the thing>. Meta's *ads* API access is back
 > (11 Aug) but the stored ad data is still the stale ~3x-inflated set; Instagram organic
 > metrics are still scope-blocked — don't try to fix either in code.
 
@@ -379,7 +390,7 @@ That message has nothing to do with `/api/health`. The env schema validates at m
 load and throws, and `/api/health` is simply the first route Next touches that imports the
 database client. **Create `.env` and it builds cleanly.**
 
-Verified from a fresh checkout with placeholder values: 254 tests pass, typecheck silent,
+Verified from a fresh checkout with placeholder values: 274 tests pass, typecheck silent,
 build clean across 20 routes. `test` and `tsc --noEmit` both work *without* a `.env` —
 only `build` and anything touching the database need one.
 

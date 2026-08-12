@@ -180,6 +180,77 @@ function parseMetaExport(
   }));
 }
 
+interface SegmentRow {
+  platform: string;
+  capturedOn: string;
+  dimension: string;
+  key: string;
+  sharePct: number;
+}
+
+/**
+ * Pulls the composition blocks out of the same Meta export.
+ *
+ * Three shapes, all percentages of followers:
+ *  - `Age & gender` — a grid: a header row of `"", "Men", "Women"` then one row per band.
+ *    Flattened to `25-34 / Men` keys so it stores like the others.
+ *  - `Top cities` / `Top countries` — two rows: labels, then the matching values.
+ *
+ * Only the top ten are reported and only to one decimal, so these never sum to 100. That
+ * is a real remainder, not a rounding error, and the consumer renormalises rather than
+ * assuming a whole distribution — see `metrics/audience-geography.ts`.
+ */
+function parseMetaSegments(file: string, platform: string, capturedOn: string): SegmentRow[] {
+  const lines = readTextFile(file).split(/\r?\n/);
+  const cells = (line: string) =>
+    line.split(",").map((c) => c.replace(/^"|"$/g, "").trim());
+
+  const out: SegmentRow[] = [];
+  const push = (dimension: string, key: string, raw: string) => {
+    const v = Number(raw);
+    if (key !== "" && Number.isFinite(v)) out.push({ platform, capturedOn, dimension, key, sharePct: v });
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const head = lines[i].trim().replace(/^"|"$/g, "").toLowerCase();
+
+    if (head === "age & gender") {
+      const header = cells(lines[i + 1] ?? "");
+      for (let r = i + 2; r < lines.length; r++) {
+        const row = cells(lines[r]);
+        if (lines[r].trim() === "" || row.length < 2) break;
+        // header[0] is the empty corner cell; columns 1..n are the genders.
+        for (let c = 1; c < row.length && c < header.length; c++) {
+          push("age_gender", `${row[0]} / ${header[c]}`, row[c]);
+        }
+      }
+    } else if (head === "top cities" || head === "top countries") {
+      const dimension = head === "top cities" ? "city" : "country";
+      const labels = cells(lines[i + 1] ?? "");
+      const values = cells(lines[i + 2] ?? "");
+      for (let c = 0; c < labels.length && c < values.length; c++) {
+        push(dimension, labels[c], values[c]);
+      }
+    }
+  }
+  return out;
+}
+
+async function upsertSegments(segments: SegmentRow[], source: string): Promise<number> {
+  let written = 0;
+  for (const s of segments) {
+    await db.execute(sql`
+      INSERT INTO social_audience_segment (platform, captured_on, dimension, key, share_pct, source)
+      VALUES (${s.platform}, ${s.capturedOn}, ${s.dimension}, ${s.key}, ${s.sharePct}, ${source})
+      ON CONFLICT (platform, captured_on, dimension, key) DO UPDATE SET
+        share_pct = EXCLUDED.share_pct,
+        updated_at = now()
+    `);
+    written += 1;
+  }
+  return written;
+}
+
 function parseCsv(file: string, defaultPlatform: string): Row[] {
   const text = readTextFile(file);
   const records = parse(text, {
@@ -252,6 +323,25 @@ async function main() {
       );
     }
     rows = parseMetaExport(metaExport, platform, anchor, arg("anchor-date"));
+
+    // The same export also carries country / city / age-gender composition. Capture it in
+    // the same pass — it is free here and a second export would be a second ask of a human.
+    const capturedOn = rows[rows.length - 1].capturedOn;
+    const segments = parseMetaSegments(metaExport, platform, capturedOn);
+    if (segments.length > 0) {
+      const n = await upsertSegments(segments, "meta_export");
+      const byDim = segments.reduce<Record<string, number>>((a, s) => {
+        a[s.dimension] = (a[s.dimension] ?? 0) + 1;
+        return a;
+      }, {});
+      console.log(
+        `\nAlso captured ${n} composition row(s) as of ${capturedOn}: ` +
+          Object.entries(byDim)
+            .map(([d, c]) => `${c} ${d}`)
+            .join(", ") +
+          ".",
+      );
+    }
   } else if (file) {
     rows = parseCsv(file, platform);
   } else {

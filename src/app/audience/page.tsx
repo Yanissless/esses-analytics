@@ -1,6 +1,7 @@
 import { requireCapability } from "@/lib/auth/current-user";
 import { getAudienceGrowth, MIN_POINTS_FOR_R } from "@/metrics/audience-growth";
-import { Card, Stat, formatNum } from "../_components/ui";
+import { getAudienceGeography, MIN_ORDERS_FOR_INDEX } from "@/metrics/audience-geography";
+import { Card, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 import {
   AbsoluteSeriesChart,
@@ -33,9 +34,10 @@ export default async function AudiencePage() {
   // reaches the sample-size floor far sooner, so it supplies a correlation months before
   // weekly can. Whichever is measurable leads — but both are shown, because silently
   // switching the basis behind one number is how a figure gets quoted out of context.
-  const [growth, daily] = await Promise.all([
+  const [growth, daily, geo] = await Promise.all([
     getAudienceGrowth("instagram", "week"),
     getAudienceGrowth("instagram", "day"),
+    getAudienceGeography("instagram"),
   ]);
   const weeklyMeasurable = growth.deltaCorrelation !== null;
   const primary = weeklyMeasurable ? growth : daily;
@@ -276,6 +278,107 @@ run.cmd import:social --platform=instagram --date=2026-08-11 --followers=18240`}
               </Card>
             </div>
           </>
+        )}
+
+        {geo.rows.length > 0 && (
+          <Card
+            title="Where the audience is, versus where the orders are"
+            subtitle={`Instagram composition as of ${geo.capturedOn} against every countable order with a country.`}
+            className="mt-4"
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-neutral-500 dark:text-neutral-400">
+                  <tr>
+                    <th className="py-2 pr-3 font-medium">Country</th>
+                    <th className="py-2 pr-3 text-right font-medium">Audience</th>
+                    <th className="py-2 pr-3 text-right font-medium">Orders</th>
+                    <th className="py-2 pr-3 text-right font-medium">Order count</th>
+                    <th className="py-2 pr-3 text-right font-medium">Revenue</th>
+                    <th className="py-2 text-right font-medium">Index</th>
+                  </tr>
+                </thead>
+                <tbody className="text-neutral-700 dark:text-neutral-300">
+                  {geo.rows.map((r) => (
+                    <tr key={r.iso} className="border-t border-neutral-100 dark:border-neutral-800">
+                      <td className="py-1.5 pr-3">
+                        {r.label} <span className="text-neutral-400">{r.iso}</span>
+                      </td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">
+                        {(r.audienceShare * 100).toFixed(1)}%
+                      </td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">
+                        {(r.orderShare * 100).toFixed(1)}%
+                      </td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{formatNum(r.orders)}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">
+                        {formatUsd(r.revenueCents, { compact: true })}
+                      </td>
+                      <td
+                        className={`py-1.5 text-right font-medium tabular-nums ${
+                          r.index == null || !r.indexReliable
+                            ? "text-neutral-400"
+                            : r.index >= 2
+                              ? "text-amber-600 dark:text-amber-400"
+                              : "text-neutral-600 dark:text-neutral-400"
+                        }`}
+                        title={
+                          !r.indexReliable && r.index != null
+                            ? `Arithmetically ${r.index.toFixed(1)}× on ${r.orders} order(s) — too few to mean anything.`
+                            : undefined
+                        }
+                      >
+                        {r.index == null
+                          ? "no orders"
+                          : r.indexReliable
+                            ? `${r.index.toFixed(1)}×`
+                            : `too few (${r.orders})`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 space-y-2 text-xs text-neutral-500 dark:text-neutral-400">
+              <p>
+                <strong className="text-neutral-800 dark:text-neutral-200">
+                  Index is audience share ÷ order share.
+                </strong>{" "}
+                1.0× means a country buys in line with its share of the following. Above 2×
+                is highlighted: the audience is there and the orders are not. Countries with
+                fewer than {MIN_ORDERS_FOR_INDEX} orders read &ldquo;too few&rdquo; rather
+                than a multiple — India divides out to 237× on a single order, which is a
+                true division and a useless number, because one more order halves it. An
+                over-index is either demand left unconverted or a market whose economics
+                don&apos;t work — and{" "}
+                <a href="/international" className="underline decoration-dotted">
+                  International margin
+                </a>{" "}
+                tells you which, because it carries the per-market cost of actually serving
+                them.
+              </p>
+              <p>
+                ⚠️ Meta reports only its top ten countries, to one decimal, so the raw shares
+                sum to {(geo.audienceCoverage * 100).toFixed(1)}% rather than 100%. The
+                audience column is renormalised over the countries it did report — the
+                remaining {((1 - geo.audienceCoverage) * 100).toFixed(1)}% is a real
+                &ldquo;everyone else&rdquo;, not a rounding error, so treat these as the
+                shape of the top ten and not the whole following. Order shares are over the{" "}
+                {formatNum(geo.ordersWithCountry)} of {formatNum(geo.ordersTotal)} countable
+                orders that carry a country.
+              </p>
+              {geo.unmapped.length > 0 && (
+                <p>
+                  ⚠️ No ISO mapping for: {geo.unmapped.join(", ")}. Listed rather than dropped
+                  — a country silently vanishing from this table would hide exactly the
+                  market worth flagging. Add it to{" "}
+                  <code className="font-mono">COUNTRY_TO_ISO</code> in{" "}
+                  <code className="font-mono">metrics/audience-geography.ts</code>.
+                </p>
+              )}
+            </div>
+          </Card>
         )}
 
         <Card title="What this page cannot tell you" className="mt-4">

@@ -28,7 +28,15 @@
  * One row per platform per day. Re-importing the same day updates it rather than
  * duplicating, so a corrected number replaces a wrong one.
  */
-import { date, integer, text, uniqueIndex, index, pgTable } from "drizzle-orm/pg-core";
+import {
+  date,
+  doublePrecision,
+  integer,
+  text,
+  uniqueIndex,
+  index,
+  pgTable,
+} from "drizzle-orm/pg-core";
 import { pk, timestamps } from "./_shared";
 
 export const socialAudience = pgTable(
@@ -73,5 +81,45 @@ export const socialAudience = pgTable(
     uniqueIndex("social_audience_platform_day_idx").on(t.platform, t.capturedOn),
     index("social_audience_captured_on_idx").on(t.capturedOn),
     index("social_audience_source_idx").on(t.source),
+  ],
+);
+
+/**
+ * Audience composition — the share breakdowns that come with a follower export.
+ *
+ * Meta's audience export carries three distributions alongside the follower series: top
+ * countries, top cities, and an age/gender grid, each as a **percentage of followers**.
+ * They are snapshots rather than a time series: the export gives you the composition as of
+ * the export, with no history, so the grain is one row per dimension key per export date.
+ *
+ * Stored generically (`dimension` + `key` + `sharePct`) rather than as three tables because
+ * the shapes are identical and the platforms disagree about which breakdowns they offer.
+ * Adding TikTok's or a newsletter's equivalent is an insert, not a migration.
+ *
+ * ⚠️ **`sharePct` is a share of FOLLOWERS, and it is truncated.** Meta reports one decimal
+ * place and lists only the top ten, so a dimension's rows sum to well under 100 — for
+ * countries here, about 81%. Anything computed from these must treat the total as the sum
+ * of what is present, never as 100, or every share is silently inflated. The remainder is
+ * a real "everyone else", not a rounding error.
+ */
+export const socialAudienceSegment = pgTable(
+  "social_audience_segment",
+  {
+    id: pk(),
+    platform: text("platform").notNull(),
+    /** Export date — the composition is as-of, with no history behind it. */
+    capturedOn: date("captured_on").notNull(),
+    /** `country` | `city` | `age_gender`. Open set for the same reason `platform` is. */
+    dimension: text("dimension").notNull(),
+    /** As Meta labels it: "United States", "New York, NY", "25-34 / Men". */
+    key: text("key").notNull(),
+    /** Percentage of followers, 0-100, one decimal as reported. */
+    sharePct: doublePrecision("share_pct").notNull(),
+    source: text("source").notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("social_segment_natural_key").on(t.platform, t.capturedOn, t.dimension, t.key),
+    index("social_segment_dimension_idx").on(t.dimension),
   ],
 );

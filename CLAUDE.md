@@ -14,7 +14,7 @@ Node and pnpm were installed after this machine's shells were created, so `pnpm`
 be on PATH. **Always use the launcher:**
 
 ```powershell
-.\run.cmd test          # 254 tests
+.\run.cmd test          # 274 tests
 .\run.cmd exec tsc --noEmit
 .\run.cmd lint          # expect 0 errors (6 unused-import warnings are pre-existing)
 .\run.cmd build         # 20 routes
