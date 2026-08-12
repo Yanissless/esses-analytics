@@ -8,6 +8,13 @@ import { Badge } from "./ui";
  * are driven by the same map in `lib/auth/capabilities.ts`. A link the user can't follow
  * simply isn't rendered — and because the page guards independently, hiding the link is
  * presentation rather than the security boundary.
+ *
+ * ⚠️ **Every page must render this component.** The Overview page used to hand-roll its own
+ * header instead, and because that copy had no link list, `/` had no navigation at all —
+ * which is where `landingPathFor` sends every admin and viewer, so the default landing page
+ * was a dead end you could only scroll. It went unnoticed because every other page had a
+ * working nav and nobody arrives at `/` by clicking. If you add a page, use `<Nav>`; if you
+ * need something in the header, add it here rather than forking the markup.
  */
 const LINKS: Array<{ href: string; label: string; capability?: Capability }> = [
   // No capability: every role may ask questions. What differs is the toolset the agent
@@ -35,7 +42,12 @@ export function Nav({ email, role }: { email: string; role: Role }) {
     <header className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-3">
         <div className="flex items-center gap-4">
-          <span className="text-sm font-semibold tracking-tight">Esses Analytics</span>
+          <span className="flex items-center gap-2">
+            <span className="text-sm font-semibold tracking-tight">Esses Analytics</span>
+            {/* Moved here from the Overview page's own header when that header was deleted
+                in favour of this component — see the note at the top of the file. */}
+            <Badge>internal</Badge>
+          </span>
           <nav className="flex items-center gap-1">
             {LINKS.filter((l) => !l.capability || can(role, l.capability)).map((l) => (
               <Link

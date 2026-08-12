@@ -8,8 +8,8 @@ import {
   getTopCustomers,
 } from "@/metrics/overview";
 import { getPeriodMetrics } from "@/metrics/rollup";
-import { logout } from "./login/actions";
 import { RevenueChart } from "./_components/revenue-chart";
+import { Nav } from "./_components/nav";
 import { Badge, Card, Stat, formatNum, formatUsd } from "./_components/ui";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,6 @@ export default async function Overview() {
   const cogsPct = quality.totalLineItems
     ? Math.round((quality.lineItemsMissingCogs / quality.totalLineItems) * 100)
     : 0;
-  const initial = (user.name ?? user.email).charAt(0).toUpperCase();
   const range =
     summary.firstOrderDate && summary.lastOrderDate
       ? `${summary.firstOrderDate} → ${summary.lastOrderDate}`
@@ -51,31 +50,10 @@ export default async function Overview() {
 
   return (
     <div className="min-h-full bg-neutral-50 dark:bg-neutral-950">
-      <header className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold tracking-tight">Esses Analytics</span>
-            <Badge>internal</Badge>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <div className="text-sm text-neutral-700 dark:text-neutral-300">{user.email}</div>
-              <div className="text-[11px] uppercase tracking-wide text-neutral-400">{user.role}</div>
-            </div>
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-900 text-sm font-medium text-white dark:bg-neutral-100 dark:text-neutral-900">
-              {initial}
-            </div>
-            <form action={logout}>
-              <button
-                type="submit"
-                className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-              >
-                Sign out
-              </button>
-            </form>
-          </div>
-        </div>
-      </header>
+      {/* The shared nav, not a local header. This page hand-rolled its own copy, and because
+          that copy carried no link list, `/` — where landingPathFor sends every admin and
+          viewer — had no navigation at all. */}
+      <Nav email={user.email} role={user.role} />
 
       <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
         <div className="flex flex-wrap items-end justify-between gap-2">
