@@ -50,8 +50,17 @@ import { ratio } from "./formulas";
  */
 export const MIN_POINTS_FOR_R = 12;
 
-/** Sources that represent a real observation rather than a filled-in gap. */
-export const OBSERVED_SOURCES = ["meta_api", "manual", "csv"] as const;
+/**
+ * Sources that represent a real observation rather than a filled-in gap.
+ *
+ * `meta_export` is included deliberately even though its *levels* are reconstructed: Meta
+ * publishes daily new-follow counts, never historical totals, so a level series can only
+ * ever be built by walking those deltas back from one known total. The deltas are exact,
+ * which is what a correlation on changes consumes; only the vertical offset inherits the
+ * anchor's rounding. Excluding it would throw away good change data over an offset that
+ * doesn't affect the answer.
+ */
+export const OBSERVED_SOURCES = ["meta_api", "meta_export", "manual", "csv"] as const;
 
 /**
  * Pearson correlation coefficient, or null when it isn't defined.

@@ -31,6 +31,29 @@ import { readFileSync } from "node:fs";
 import { parse } from "csv-parse/sync";
 import { sql } from "drizzle-orm";
 
+/**
+ * Reads a file that may be UTF-16LE with a BOM.
+ *
+ * Meta's Instagram audience export is UTF-16LE and opens with a `sep=,` directive. Read as
+ * UTF-8 it decodes to characters separated by NUL bytes, which csv-parse happily accepts
+ * and turns into nonsense rather than an error — so sniff the BOM instead of assuming.
+ */
+function readTextFile(path: string): string {
+  const buf = readFileSync(path);
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return buf.toString("utf16le").slice(1);
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
+    // UTF-16BE: swap byte pairs, then decode as LE.
+    const swapped = Buffer.from(buf);
+    for (let i = 0; i + 1 < swapped.length; i += 2) {
+      const t = swapped[i];
+      swapped[i] = swapped[i + 1];
+      swapped[i + 1] = t;
+    }
+    return swapped.toString("utf16le").slice(1);
+  }
+  return buf.toString("utf8").replace(/^﻿/, "");
+}
+
 import { db } from "../src/db/client";
 import { logger } from "../src/lib/logger";
 
@@ -65,8 +88,100 @@ function pick(row: Record<string, string>, ...names: string[]): string | undefin
   return undefined;
 }
 
+/**
+ * Parses Meta's Instagram audience export and reconstructs follower TOTALS from it.
+ *
+ * ## Why reconstruction is necessary, not a workaround
+ *
+ * The export's "Follows" block is **new follows per day** — values like 0, 1, 3 — not the
+ * follower count. Meta does not publish historical totals anywhere: not in this export,
+ * not in Business Suite, and not through the Graph API, where `follower_count` is also a
+ * daily new-follow metric and the total is only readable as a current point-in-time field.
+ * So a level series can only ever be built by walking the deltas back from one known total.
+ * That is the method, not a compromise.
+ *
+ * What this means for trust: the deltas are exact, so the SHAPE of the reconstructed line
+ * is exact. Only its vertical offset carries whatever imprecision is in the anchor — a
+ * "43.3k" reading is ±50, which is larger than a month of movement at this account's growth
+ * rate. That matters for reading a level off the chart and not at all for the correlation,
+ * which consumes changes. The anchor and its date are recorded in each row's `note` so the
+ * assumption travels with the data.
+ */
+function parseMetaExport(
+  file: string,
+  platform: string,
+  anchor: number,
+  anchorDateArg: string | undefined,
+): Row[] {
+  const text = readTextFile(file);
+  const lines = text.split(/\r?\n/);
+
+  // Find the "Follows" section, then read the date/value rows beneath its header row.
+  const startIdx = lines.findIndex((l) => /^"?Follows"?\s*$/i.test(l.trim()));
+  if (startIdx === -1) {
+    throw new Error(
+      'No "Follows" section found. This does not look like a Meta Instagram audience export — ' +
+        "use --file for a plain date,platform,followers CSV instead.",
+    );
+  }
+
+  const daily: Array<{ date: string; delta: number }> = [];
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line === "") break; // blank line ends the section
+    const cells = line.split(",").map((c) => c.replace(/^"|"$/g, "").trim());
+    if (cells.length < 2) continue;
+    if (/^date$/i.test(cells[0])) continue; // the section's own header
+    const date = cells[0].slice(0, 10);
+    if (!ISO_DATE.test(date)) continue;
+    const delta = intOrNull(cells[1]);
+    if (delta == null) continue;
+    daily.push({ date, delta });
+  }
+
+  if (daily.length === 0) throw new Error('The "Follows" section parsed to 0 usable rows.');
+  daily.sort((a, b) => a.date.localeCompare(b.date));
+
+  const lastDate = daily[daily.length - 1].date;
+  const anchorDate = anchorDateArg ?? lastDate;
+  if (anchorDate < lastDate) {
+    throw new Error(
+      `--anchor-date ${anchorDate} is before the last day in the file (${lastDate}). ` +
+        "Anchor on the last day or later, so the deltas can be walked backwards from it.",
+    );
+  }
+
+  // Days between the file's end and a later anchor date have unknown deltas. At this
+  // account's rate that is a follower or two, but state it rather than bury it.
+  const gapDays = Math.round(
+    (Date.parse(`${anchorDate}T00:00:00Z`) - Date.parse(`${lastDate}T00:00:00Z`)) / 86_400_000,
+  );
+  if (gapDays > 0) {
+    console.log(
+      `\nNote: anchor is dated ${anchorDate} but the file ends ${lastDate}. Treating ${anchor} ` +
+        `as the total on ${lastDate}; any growth in those ${gapDays} day(s) is unaccounted.\n`,
+    );
+  }
+
+  // Walk backwards: total(d-1) = total(d) - delta(d).
+  const totals = new Array<number>(daily.length);
+  totals[daily.length - 1] = anchor;
+  for (let i = daily.length - 2; i >= 0; i--) totals[i] = totals[i + 1] - daily[i + 1].delta;
+
+  const note = `reconstructed from daily follows; anchored ${anchor} on ${anchorDate}`;
+  return daily.map((d, i) => ({
+    platform,
+    capturedOn: d.date,
+    followers: totals[i],
+    following: null,
+    posts: null,
+    source: "meta_export",
+    note,
+  }));
+}
+
 function parseCsv(file: string, defaultPlatform: string): Row[] {
-  const text = readFileSync(file, "utf8");
+  const text = readTextFile(file);
   const records = parse(text, {
     columns: true,
     skip_empty_lines: true,
@@ -124,8 +239,20 @@ async function main() {
   const file = arg("file");
   const platform = (arg("platform") ?? "instagram").toLowerCase();
 
+  const metaExport = arg("meta-export");
+  const anchor = intOrNull(arg("anchor"));
+
   let rows: Row[];
-  if (file) {
+  if (metaExport) {
+    if (anchor == null || anchor <= 0) {
+      throw new Error(
+        "--meta-export needs --anchor=<current total followers>, because the export contains\n" +
+          "daily NEW follows rather than totals and Meta publishes no historical total anywhere.\n" +
+          'Example: pnpm import:social --meta-export="Audience.csv" --anchor=43300',
+      );
+    }
+    rows = parseMetaExport(metaExport, platform, anchor, arg("anchor-date"));
+  } else if (file) {
     rows = parseCsv(file, platform);
   } else {
     // Single-observation mode, for "I just looked at the app" entry.
@@ -134,6 +261,7 @@ async function main() {
     if (!date || !ISO_DATE.test(date) || followers == null) {
       throw new Error(
         'Usage: pnpm import:social --file="path/to/followers.csv"\n' +
+          '   or: pnpm import:social --meta-export="Audience.csv" --anchor=43300 [--anchor-date=2026-08-12]\n' +
           "   or: pnpm import:social --platform=instagram --date=2026-08-11 --followers=18240 [--following=412] [--posts=1209] [--note=\"...\"]",
       );
     }
