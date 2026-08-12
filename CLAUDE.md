@@ -140,10 +140,12 @@ reconcile against a second surface. Several bugs here passed every test.
   count, reach, and per-post engagement need `instagram_basic`,
   `instagram_manage_insights`, `pages_show_list` and `pages_read_engagement`; all four are
   missing from the token and the app sees **0 Pages**.
-  - 🕐 **Business verification is pending (12 Aug 2026) and is the current lead** — Meta
-    gates Advanced Access to permissions behind it, so don't keep hunting for a
-    misconfiguration until it clears. `Pages visible: 0` is a separate, fixable-now problem
-    (assign the Page to the System User). Detail in `START-HERE.md` §4.
+  - ✅ Business verification cleared 12 Aug 2026. 🔑 **Now blocked purely on Business admin
+    rights over System Users** — both remaining steps (assign the Page to the System User;
+    mint a new token with all six scopes) live there, and Sam has no access. A delegation
+    problem, not a technical one. Note verification does **not** widen an existing token:
+    scopes are fixed at mint time, so `check:meta` will not move until a new token exists.
+    Detail in `START-HERE.md` §4.
   - ⚠️ Granting the scopes will **not** backfill history — Instagram's `follower_count`
     insight is a rolling ~30-day window and no endpoint returns a past day's total, so
     `/audience` reconstructs levels from daily follows plus one anchor

@@ -193,23 +193,26 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
   `instagram_manage_insights`, `pages_show_list` and `pages_read_engagement`. All four are
   missing from the token and the app sees **0 Pages**. Requesting them is now actually
   possible (it wasn't while the app was blocked) and it is Meta-UI work.
-  - 🕐 **BUSINESS VERIFICATION IS PENDING as of 12 Aug 2026 — this is the current lead.**
-    Sam found the business profile unverified while working through the app settings.
-    Meta gates **Advanced Access** to permissions behind business verification, so an
-    unverified business is a very plausible reason the four scopes cannot be attached to a
-    token no matter how the app is configured. Confirm it rather than assume: the app
-    dashboard's **App Review → Permissions and Features** list shows, per permission,
-    whether it needs verification, and **Business Settings → Security Centre** shows the
-    verification status. Verification typically takes a few business days.
-    **Do not keep hunting for a misconfiguration until this resolves** — the previous
-    detour on this connector cost two sessions chasing a cause that wasn't there.
-  - ⚡ **`Pages visible: 0` is INDEPENDENT of verification and fixable now.** It is asset
-    assignment, not permissions: Business Settings → Users → System Users →
-    `esses analytics sync` → Add Assets → Pages. Worth doing while verification is
-    pending, so that when it clears the only remaining step is generating a token.
+  - ✅ **Business verification: DONE, 12 Aug 2026.** It was the gate on Advanced Access to
+    these permissions. Nothing about the app's configuration needs further investigation —
+    the remaining work is entirely account access, described next.
+  - 🔑 **NOW BLOCKED ON: Business admin rights over System Users.** Sam cannot reach the
+    System Users settings, and **both** remaining steps live there:
+    1. Assign the Page to the System User `esses analytics sync` (Add Assets → Pages).
+       This is what clears `Pages visible: 0`.
+    2. Generate a **new** System User token carrying all six scopes.
+
+    Whoever holds Business admin can do both in about five minutes. Find them at
+    **Business Settings → Users → People**, which employees can usually read — look for
+    the Admin role. This is a delegation problem now, not a technical one.
+  - ⚠️ **Verification does NOT retroactively widen an existing token.** Confirmed by
+    running `check:meta` immediately after verification cleared: identical output, all four
+    scopes still missing. Token scopes are fixed when the token is minted, so nothing about
+    this connector changes until step 2 above happens. Don't re-run `check:meta` expecting
+    movement before then.
   - ⚠️ When that token is generated, tick **all six** scopes — the four above *plus*
     `ads_read` and `read_insights`. A token minted with only the new four fixes Instagram
-    and silently breaks the ads sync.
+    and silently breaks the ads sync repaired on 12 Aug.
   - ⚠️ **Granting the scopes will not backfill history.** Instagram's `follower_count`
     insight returns a rolling **~30-day window** — there is no endpoint for the follower
     count on an arbitrary past date. So a correlation against subscriber growth can only
