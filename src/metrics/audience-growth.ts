@@ -51,6 +51,17 @@ import { ratio } from "./formulas";
 export const MIN_POINTS_FOR_R = 12;
 
 /**
+ * Observation grain.
+ *
+ * `week` is the default because it smooths the day-to-day noise out of both series and a
+ * weekly cadence is what a hand-entered follower series realistically sustains. `day`
+ * exists because it reaches the sample-size floor far sooner: 28 days of Meta export give
+ * 27 paired daily changes, where the same data is only 4 weekly points. The tradeoff is
+ * real in both directions and the page reports both rather than choosing silently.
+ */
+export type Grain = "day" | "week";
+
+/**
  * Sources that represent a real observation rather than a filled-in gap.
  *
  * `meta_export` is included deliberately even though its *levels* are reconstructed: Meta
@@ -224,6 +235,16 @@ export interface IndexedPoint {
 }
 
 export interface AudienceGrowthAnalysis {
+  grain: Grain;
+  /**
+   * Share of paired follower changes that are exactly zero.
+   *
+   * A daily follower series on a slow-growing account is mostly flat days, and a variable
+   * that barely moves cannot correlate with anything stably — r swings on one or two active
+   * days. High here means treat the correlation as directional at best, regardless of what
+   * the coefficient says. Null when there are no paired changes to measure.
+   */
+  zeroDeltaShare: number | null;
   points: AudiencePoint[];
   /** Ready to plot on a single axis — see `indexToBase` for why this exists. */
   indexed: IndexedPoint[];
@@ -251,12 +272,16 @@ export interface AudienceGrowthAnalysis {
  * (a follower count is a level, not a sum) and flags the week as observed only when no
  * interpolated row contributed.
  */
-export async function getFollowerSeries(platform = "instagram"): Promise<
-  Array<{ weekStart: string; followers: number; observed: boolean }>
-> {
+export async function getFollowerSeries(
+  platform = "instagram",
+  grain: Grain = "week",
+): Promise<Array<{ weekStart: string; followers: number; observed: boolean }>> {
+  // date_trunc('day', …) on a `date` column is a no-op, so the same query serves both
+  // grains and there is only one place for the level-not-sum rule to live.
+  const bucket = grain === "day" ? sql`captured_on` : sql`date_trunc('week', captured_on)`;
   const rows = await db.execute<{ week_start: string; followers: number; observed: boolean }>(sql`
     SELECT
-      to_char(date_trunc('week', captured_on)::date, 'YYYY-MM-DD') AS week_start,
+      to_char(${bucket}::date, 'YYYY-MM-DD') AS week_start,
       -- A follower count is a level: take the week's last reading, never a sum.
       (array_agg(followers ORDER BY captured_on DESC))[1]::int      AS followers,
       -- IN, not ANY-of-an-interpolated-array: drizzle's sql template expands a JS array
@@ -269,8 +294,8 @@ export async function getFollowerSeries(platform = "instagram"): Promise<
       )}))                                                          AS observed
     FROM social_audience
     WHERE platform = ${platform}
-    GROUP BY date_trunc('week', captured_on)
-    ORDER BY date_trunc('week', captured_on)
+    GROUP BY ${bucket}
+    ORDER BY ${bucket}
   `);
   return (rows as unknown as Array<{ week_start: string; followers: number; observed: boolean }>).map(
     (r) => ({ weekStart: r.week_start, followers: Number(r.followers), observed: Boolean(r.observed) }),
@@ -288,20 +313,39 @@ export async function getFollowerSeries(platform = "instagram"): Promise<
  * than smoothed over: it means the early weeks of the Skio series are slightly
  * understated (subscriptions since cancelled are absent from history).
  */
-export async function getSubscriberSeries(): Promise<Array<{ weekStart: string; subscribers: number }>> {
+export async function getSubscriberSeries(
+  grain: Grain = "week",
+  /**
+   * Optional lower bound, YYYY-MM-DD.
+   *
+   * At a daily grain the series would otherwise span every day since the first
+   * subscription — 300-odd days, each re-scanning the whole subscription table — when the
+   * follower series it will be paired against covers a few weeks. Passing the follower
+   * window's start cuts that to the days that can actually form a pair.
+   */
+  since?: string,
+): Promise<Array<{ weekStart: string; subscribers: number }>> {
+  const step = grain === "day" ? sql`interval '1 day'` : sql`interval '1 week'`;
+  // A plain string, so it interpolates as a BOUND TEXT PARAMETER. As a sql`` fragment it
+  // would emit the bare identifier `week` and Postgres rejects date_trunc(week, …) —
+  // date_trunc's first argument is text, not a column reference.
+  const trunc = grain === "day" ? "day" : "week";
+  const lower =
+    since === undefined
+      ? sql`date_trunc(${trunc}, (SELECT min(started_at) FROM subscription_meta WHERE started_at IS NOT NULL))`
+      : sql`date_trunc(${trunc}, ${since}::timestamptz)`;
+  // End of the bucket: the level is "active as at the last instant of this day/week".
+  const bucketEnd = sql`w.wk + ${step} - interval '1 second'`;
+
   const rows = await db.execute<{ week_start: string; subscribers: number }>(sql`
     WITH weeks AS (
-      SELECT generate_series(
-        date_trunc('week', (SELECT min(started_at) FROM subscription_meta WHERE started_at IS NOT NULL)),
-        date_trunc('week', now()),
-        interval '1 week'
-      ) AS wk
+      SELECT generate_series(${lower}, date_trunc(${trunc}, now()), ${step}) AS wk
     ),
     skio AS (
       SELECT w.wk, count(*)::int AS n
       FROM weeks w
       JOIN subscription_meta s
-        ON s.started_at <= w.wk + interval '1 week' - interval '1 second'
+        ON s.started_at <= ${bucketEnd}
        AND s.status = 'active'
       GROUP BY w.wk
     ),
@@ -309,8 +353,8 @@ export async function getSubscriberSeries(): Promise<Array<{ weekStart: string; 
       SELECT w.wk, count(*)::int AS n
       FROM weeks w
       JOIN stripe_subscriptions s
-        ON s.started_at <= w.wk + interval '1 week' - interval '1 second'
-       AND (s.canceled_at IS NULL OR s.canceled_at > w.wk + interval '1 week' - interval '1 second')
+        ON s.started_at <= ${bucketEnd}
+       AND (s.canceled_at IS NULL OR s.canceled_at > ${bucketEnd})
       GROUP BY w.wk
     )
     SELECT
@@ -333,11 +377,17 @@ export async function getSubscriberSeries(): Promise<Array<{ weekStart: string; 
  * Returns an empty-but-valid result when there is no follower data at all, so the page
  * can render an explanation of what is missing rather than an error.
  */
-export async function getAudienceGrowth(platform = "instagram"): Promise<AudienceGrowthAnalysis> {
-  const [followers, subscribers] = await Promise.all([
-    getFollowerSeries(platform),
-    getSubscriberSeries(),
-  ]);
+export async function getAudienceGrowth(
+  platform = "instagram",
+  grain: Grain = "week",
+): Promise<AudienceGrowthAnalysis> {
+  const followers = await getFollowerSeries(platform, grain);
+  // Bound the subscriber series to the follower window at a daily grain; unbounded it
+  // would build 300+ daily buckets that can never form a pair.
+  const subscribers = await getSubscriberSeries(
+    grain,
+    grain === "day" && followers.length > 0 ? followers[0].weekStart : undefined,
+  );
 
   const subsByWeek = new Map(subscribers.map((s) => [s.weekStart, s.subscribers]));
   const followersByWeek = new Map(followers.map((f) => [f.weekStart, f]));
@@ -376,21 +426,41 @@ export async function getAudienceGrowth(platform = "instagram"): Promise<Audienc
         "token — or a manual/CSV import via `run.cmd import:social`.",
     );
   }
+  const unit = grain === "day" ? "day" : "week";
+  // Spelled out, not built by suffixing `unit` — that yields "dayly".
+  const adverb = grain === "day" ? "daily" : "weekly";
   if (followers.length > 0 && paired.length < MIN_POINTS_FOR_R) {
     caveats.push(
-      `Only ${paired.length} week(s) have a real follower reading; ${MIN_POINTS_FOR_R} are ` +
+      `Only ${paired.length} ${unit}(s) have a real follower reading; ${MIN_POINTS_FOR_R} are ` +
         "needed before a correlation means anything, so it is reported as not measurable.",
+    );
+  }
+  if (grain === "day") {
+    caveats.push(
+      "Measured on DAILY changes. That reaches a usable sample far sooner than weekly — 28 " +
+        "days of export give 27 paired changes where the same data is 4 weekly points — but " +
+        "daily follower movement on this account is a handful of follows, so the correlation " +
+        "is low-powered and one unusual day moves it. Weekly is the steadier read once there " +
+        "are enough weeks.",
     );
   }
   const interpolated = points.filter((p) => p.followers !== null && !p.observed).length;
   if (interpolated > 0) {
     caveats.push(
-      `${interpolated} week(s) hold interpolated follower values. They are drawn on the ` +
+      `${interpolated} ${unit}(s) hold interpolated follower values. They are drawn on the ` +
         "chart but excluded from every correlation — a straight line correlates with anything.",
     );
   }
+  const zeroShare = fd.length === 0 ? 0 : fd.filter((d) => d === 0).length / fd.length;
+  if (fd.length > 0 && zeroShare >= 0.3) {
+    caveats.push(
+      `${Math.round(zeroShare * 100)}% of ${adverb} follower changes are exactly zero. A ` +
+        "variable that barely moves cannot correlate with anything stably — the coefficient " +
+        "swings on the few active periods, so read it as directional at best.",
+    );
+  }
   caveats.push(
-    "Correlation is computed on weekly CHANGES, not levels. Two series that both trend " +
+    `Correlation is computed on ${adverb} CHANGES, not levels. Two series that both trend ` +
       "upward correlate near 1.0 regardless of any real relationship; the level figure is " +
       "shown only to make that point.",
   );
@@ -429,6 +499,8 @@ export async function getAudienceGrowth(platform = "instagram"): Promise<Audienc
   };
 
   return {
+    grain,
+    zeroDeltaShare: fd.length === 0 ? null : fd.filter((d) => d === 0).length / fd.length,
     points,
     indexed,
     latest,

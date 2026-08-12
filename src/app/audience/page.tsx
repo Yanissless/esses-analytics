@@ -29,15 +29,26 @@ const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(2)}%
  */
 export default async function AudiencePage() {
   const user = await requireCapability("marketing");
-  const growth = await getAudienceGrowth("instagram");
+  // Both grains. Weekly is the steadier read and stays the basis for the charts; daily
+  // reaches the sample-size floor far sooner, so it supplies a correlation months before
+  // weekly can. Whichever is measurable leads — but both are shown, because silently
+  // switching the basis behind one number is how a figure gets quoted out of context.
+  const [growth, daily] = await Promise.all([
+    getAudienceGrowth("instagram", "week"),
+    getAudienceGrowth("instagram", "day"),
+  ]);
+  const weeklyMeasurable = growth.deltaCorrelation !== null;
+  const primary = weeklyMeasurable ? growth : daily;
 
   const hasFollowerData = growth.points.some((p) => p.followers !== null);
   // Extracted here rather than passed as an accessor: props crossing into a Client
   // Component must be serializable, and a function is not — it fails at request time with
   // an error neither tsc nor build reports. See the note in charts.tsx.
   const weeks = growth.points.map((p) => p.weekStart);
-  const measurable = growth.deltaCorrelation !== null;
-  const best = growth.lag.best;
+  const best = primary.lag.best;
+  const unit = primary.grain === "day" ? "day" : "week";
+  // "dayly" is not a word — don't build the adverb by suffixing the grain.
+  const adverb = primary.grain === "day" ? "daily" : "weekly";
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
@@ -136,20 +147,24 @@ run.cmd import:social --platform=instagram --date=2026-08-11 --followers=18240`}
                 hint="compound, same window"
               />
               <Stat
-                label="Correlation (weekly change)"
-                value={r2(growth.deltaCorrelation)}
+                label={`Correlation (${adverb} change)`}
+                value={r2(primary.deltaCorrelation)}
                 hint={
-                  measurable
-                    ? "the figure to quote — shared trend removed"
-                    : `not measurable — needs ${MIN_POINTS_FOR_R} paired weeks, have ${growth.pairedWeeks}`
+                  primary.deltaCorrelation !== null
+                    ? primary.grain === "day"
+                      ? `${primary.pairedWeeks} paired days · daily basis until there are ${MIN_POINTS_FOR_R} weeks`
+                      : "the figure to quote — shared trend removed"
+                    : `not measurable on either basis — ${growth.pairedWeeks} weeks, ${daily.pairedWeeks} days, need ${MIN_POINTS_FOR_R}`
                 }
               />
               <Stat
                 label="Best lead time"
-                value={best ? `${best.lag}w` : "—"}
+                value={
+                  primary.lag.best ? `${primary.lag.best.lag}${primary.grain === "day" ? "d" : "w"}` : "—"
+                }
                 hint={
-                  best
-                    ? `r ${best.r?.toFixed(2)} — follower change leading subscriber change`
+                  primary.lag.best
+                    ? `r ${primary.lag.best.r?.toFixed(2)} — follower change leading subscriber change`
                     : "not measurable yet"
                 }
               />
@@ -218,12 +233,12 @@ run.cmd import:social --platform=instagram --date=2026-08-11 --followers=18240`}
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <Card
                 title="Does follower growth arrive first?"
-                subtitle="Correlation of weekly follower change against subscriber change, at each lag."
+                subtitle={`Correlation of ${adverb} follower change against subscriber change, at each lag.`}
               >
-                <LagProfileChart profile={growth.lag.profile} />
+                <LagProfileChart profile={primary.lag.profile} />
                 <p className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">
                   {best && best.lag > 0
-                    ? `Strongest at ${best.lag} week(s), which would make follower growth a leading indicator worth watching weekly.`
+                    ? `Strongest at ${best.lag} ${unit}(s), which would make follower growth a leading indicator worth watching.`
                     : best
                       ? "Strongest at lag 0 — the two move in the same week, so followers look like a by-product of whatever drives subscriptions rather than a cause of them."
                       : "Every lag costs a paired observation, so this needs more weeks of follower data than a plain correlation does."}
@@ -265,7 +280,7 @@ run.cmd import:social --platform=instagram --date=2026-08-11 --followers=18240`}
 
         <Card title="What this page cannot tell you" className="mt-4">
           <ul className="space-y-2 text-xs text-neutral-600 dark:text-neutral-400">
-            {growth.caveats.map((c) => (
+            {primary.caveats.map((c) => (
               <li key={c} className="flex gap-2">
                 <span aria-hidden className="text-neutral-400">
                   •
