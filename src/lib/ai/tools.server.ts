@@ -50,6 +50,8 @@ import {
 import { getPeriodMetrics } from "../../metrics/rollup";
 import { getGoalProgress, getLastMetricsDate } from "../../metrics/forecast.server";
 import { getSocialSummary } from "../../metrics/social";
+import { getSocialInsights } from "../../metrics/social-insights";
+import { getAudienceGrowth } from "../../metrics/audience-growth";
 import {
   getCohorts,
   getLtvByChannel,
@@ -450,6 +452,58 @@ export function buildAnalystTools(role: Role): BetaRunnableTool[] {
       run: async (args: { limit?: number }) => {
         assertCapability(role, "geo_concentration");
         return json(await getGeoConcentration(args.limit ?? 12));
+      },
+    }),
+
+    /**
+     * Reach is the one figure in the whole toolset that must not be summed, so this returns
+     * the pre-computed aggregates and drops the daily series. Handing the model 30 daily
+     * numbers plus a note saying "don't add these up" invites exactly that; handing it
+     * `reachDailyAvg` and an upper bound named as one does not.
+     */
+    social_insights: betaTool({
+      name: "social_insights",
+      description:
+        "Instagram organic reach and engagement for a date range: average DAILY unique reach, " +
+        "peak and trough days, views, profile views, interactions, and rates against accounts " +
+        "reached. There is deliberately no total reach for the range — reach counts distinct " +
+        "accounts and cannot be summed; summedReachUpperBound is an upper bound only and runs " +
+        "roughly 50% above the truth for this account. Quote the per-day average. Rates are " +
+        "against accounts reached, never followers, because reach exceeds the follower count.",
+      // DATE_RANGE + window(): optional dates defaulting to the loaded span, same as every
+      // other ranged tool. Required dates would force the model to invent them, and made
+      // `check:analyst` — which calls every tool with no args — fail on this one alone.
+      inputSchema: DATE_RANGE,
+      run: async (args: { since?: string; until?: string }) => {
+        assertCapability(role, "social_insights");
+        const { since, until } = await window(args.since, args.until);
+        const { points, ...rest } = await getSocialInsights("instagram", since, until);
+        return json({ ...rest, daysReturned: points.length });
+      },
+    }),
+
+    audience_growth: betaTool({
+      name: "audience_growth",
+      description:
+        "Instagram followers against active subscribers over time: both totals, growth rates, " +
+        "the ratio, and the correlation of their CHANGES. Use deltaCorrelation, never " +
+        "levelCorrelation — both series trend upward, so a correlation on levels sits near 1.0 " +
+        "whether or not any relationship exists and really measures the passage of time. " +
+        "lag.best is the strongest POSITIVE lag; lag.strongestInverse is reported separately " +
+        "and is NOT evidence that followers lead. Read caveats before quoting: days before " +
+        "13 Aug 2026 are reconstructed from deltas rather than observed.",
+      inputSchema: {
+        type: "object",
+        properties: { grain: { type: "string", enum: ["day", "week"] } },
+        additionalProperties: false,
+      } as const,
+      run: async (args: { grain?: "day" | "week" }) => {
+        assertCapability(role, "audience_growth");
+        const { points, indexed, ...rest } = await getAudienceGrowth(
+          "instagram",
+          args.grain ?? "week",
+        );
+        return json({ ...rest, pointsReturned: points.length, indexedReturned: indexed.length });
       },
     }),
 

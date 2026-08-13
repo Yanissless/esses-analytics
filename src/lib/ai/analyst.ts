@@ -101,6 +101,8 @@ export const ANALYST_TOOLS: Record<string, AnalystToolMeta> = {
 
   social_summary: { capability: "marketing", label: "the social summary" },
   channel_ltv: { capability: "marketing", label: "LTV by channel" },
+  social_insights: { capability: "marketing", label: "Instagram reach and engagement" },
+  audience_growth: { capability: "marketing", label: "follower vs subscriber growth" },
 
   cohorts: { capability: "audience", label: "customer cohorts" },
   ltv_summary: { capability: "audience", label: "the LTV summary" },
