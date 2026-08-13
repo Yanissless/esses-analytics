@@ -111,6 +111,39 @@ function CreativeGap({ row }: { row: CreativeRow }) {
   return <span className="text-emerald-600 dark:text-emerald-400">agrees</span>;
 }
 
+/**
+ * One metric in the campaign summary grid.
+ *
+ * Carries its own label, shown only below `lg`. The grid collapses to a single column on
+ * narrow screens, where a right-aligned number whose heading lives in a hidden header row
+ * would be unreadable — so the label travels with the value rather than living only in a
+ * column head that may not be rendered.
+ */
+function Cell({
+  label,
+  value,
+  strong = false,
+  muted = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 lg:block lg:text-right">
+      <span className="text-xs text-neutral-400 lg:hidden">{label}</span>
+      <span
+        className={`text-sm tabular-nums ${strong ? "font-medium" : ""} ${
+          muted ? "text-neutral-400" : ""
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function Offers({ row }: { row: CampaignRow | CreativeRow }) {
   if (row.discounts.length === 0) return <span className="text-neutral-400">—</span>;
   return (
@@ -153,7 +186,7 @@ export default async function CreativesPage({
   return (
     <div className="min-h-full bg-neutral-50 dark:bg-neutral-950">
       <Nav email={user.email} role={user.role} />
-      <main className="mx-auto max-w-6xl space-y-6 px-6 py-8">
+      <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Campaigns &amp; creatives</h1>
           <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
@@ -253,130 +286,136 @@ export default async function CreativesPage({
           </ul>
         </Card>
 
+        {/* Campaigns are a stack of <details> cards, NOT a table.
+
+            They were a table, and the drill-down lived inside the first <td> — so an expanded
+            campaign's creatives could only ever use the width of the "Campaign" column, with
+            two-thirds of the page sitting empty beside them. No amount of styling fixes that;
+            a cell cannot be wider than its column. The header metrics keep their alignment via
+            a grid on the summary row, and the body is free to use the whole width. */}
         <Card
           title="Campaigns"
           subtitle="Ordered by spend — where the money went, whether or not it worked. Click a campaign for its creatives."
         >
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="text-neutral-500 dark:text-neutral-400">
-                <tr>
-                  <th className="py-2 pr-3 font-medium">Campaign</th>
-                  <th className="py-2 pr-3 text-right font-medium">Spend</th>
-                  <th className="py-2 pr-3 text-right font-medium">CTR</th>
-                  <th className="py-2 pr-3 text-right font-medium">Meta ROAS</th>
-                  <th className="py-2 pr-3 text-right font-medium">Our orders</th>
-                  <th className="py-2 pr-3 text-right font-medium">Our revenue</th>
-                  <th className="py-2 pr-3 font-medium">Ours</th>
-                  <th className="py-2 font-medium">Offers</th>
-                </tr>
-              </thead>
-              <tbody className="text-neutral-700 dark:text-neutral-300">
-                {campaigns.map((c) => (
-                  <tr
-                    key={c.campaignId ?? "none"}
-                    className="border-t border-neutral-100 align-top dark:border-neutral-800"
-                  >
-                    <td className="py-2 pr-3">
-                      {/* <details> rather than a client component: the drill-down needs no JS,
-                          so it can't break on hydration and works with the page disabled. */}
-                      <details>
-                        <summary className="cursor-pointer font-medium marker:text-neutral-400">
-                          {c.campaignName ?? "(unnamed campaign)"}{" "}
-                          <span className="font-normal text-neutral-400">
-                            {c.creatives.length} creative{c.creatives.length === 1 ? "" : "s"}
-                          </span>
-                          {!c.tagged ? (
-                            <span className="ml-1 text-neutral-400">· untagged</span>
-                          ) : null}
-                        </summary>
-                        {/* Previews sit above the list so the campaign is recognisable at a
-                            glance — the whole point of asking "which creative is working". */}
-                        <div className="mb-3 mt-2">
-                          <CreativeStrip creatives={c.creatives} mediaById={mediaById} />
-                        </div>
-                        <div className="mt-2 space-y-2 border-l border-neutral-200 pl-3 dark:border-neutral-700">
-                          {c.creatives.filter((cr) => cr.tagged || cr.spendCents > 0).slice(0, 25).map((cr) => (
-                            <div
-                              key={cr.adId ?? cr.adName ?? Math.random().toString()}
-                              className="flex items-start gap-3"
-                            >
-                              <CreativeThumb
-                                adId={cr.adId}
-                                adName={cr.adName}
-                                media={cr.adId ? mediaById.get(cr.adId) : undefined}
-                                size={56}
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                                  <span className="font-medium">
-                                    {cr.adName ?? cr.adId ?? "(unnamed)"}
-                                  </span>
-                                  <span className="text-neutral-500 dark:text-neutral-400">
-                                    {formatUsd(cr.spendCents)} spend
-                                  </span>
-                                  <MeasureCell row={cr} />
-                                  <Offers row={cr} />
-                                </div>
-                                {/* The two order counts side by side, always both shown.
-                                    Sam compared Meta's per-ad purchases against this page and
-                                    found ads Meta credits with 11 conversions showing "0
-                                    orders" here. Both numbers are right; they answer different
-                                    questions. Printing only ours made the page look broken. */}
-                                <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-0.5 text-xs">
-                                  <span className="text-neutral-500 dark:text-neutral-400">
-                                    Meta{" "}
-                                    <span className="font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
-                                      {formatNum(Math.round(cr.metaConversions))}
-                                    </span>{" "}
-                                    purchase{Math.round(cr.metaConversions) === 1 ? "" : "s"}
-                                  </span>
-                                  <span className="text-neutral-500 dark:text-neutral-400">
-                                    Ours{" "}
-                                    <span className="font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
-                                      {formatNum(cr.ourOrders)}
-                                    </span>{" "}
-                                    order{cr.ourOrders === 1 ? "" : "s"}
-                                    {cr.ourFreeOrders > 0 ? ` (${cr.ourFreeOrders} free)` : ""} ·{" "}
-                                    {formatUsd(cr.ourRevenueCents)}
-                                  </span>
-                                  <CreativeGap row={cr} />
-                                </div>
-                              </div>
+          {/* Column headings mirror the summary grid below. Hidden on small screens, where
+              the summary stacks and labelled values carry the meaning instead. */}
+          <div className="hidden grid-cols-[minmax(0,1fr)_7rem_5rem_6rem_7rem_8rem] gap-3 border-b border-neutral-200 px-2 pb-2 text-xs font-medium text-neutral-500 lg:grid dark:border-neutral-800 dark:text-neutral-400">
+            <div>Campaign</div>
+            <div className="text-right">Spend</div>
+            <div className="text-right">CTR</div>
+            <div className="text-right">Meta ROAS</div>
+            <div className="text-right">Our orders</div>
+            <div className="text-right">Our revenue</div>
+          </div>
+
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+            {campaigns.map((c) => (
+              /* <details> rather than a client component: the drill-down needs no JS, so it
+                 can't break on hydration and works with scripting disabled. */
+              <details key={c.campaignId ?? "none"} className="group">
+                <summary className="cursor-pointer list-none rounded-lg px-2 py-3 marker:content-none hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+                  <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_7rem_5rem_6rem_7rem_8rem] lg:gap-3">
+                    <div className="min-w-0">
+                      <span className="mr-1.5 inline-block text-neutral-400 transition group-open:rotate-90">
+                        ▸
+                      </span>
+                      <span className="text-sm font-medium">
+                        {c.campaignName ?? "(unnamed campaign)"}
+                      </span>
+                      <span className="ml-2 text-xs text-neutral-400">
+                        {c.creatives.length} creative{c.creatives.length === 1 ? "" : "s"}
+                        {!c.tagged ? " · untagged" : ""}
+                      </span>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-4">
+                        <MeasureCell row={c} />
+                        <Offers row={c} />
+                      </div>
+                    </div>
+                    <Cell label="Spend" value={formatUsd(c.spendCents)} strong />
+                    <Cell label="CTR" value={pct(c.ctr, 2)} />
+                    <Cell label="Meta ROAS" value={x(c.metaRoas)} muted />
+                    <Cell
+                      label="Our orders"
+                      value={`${formatNum(c.ourOrders)}${c.ourFreeOrders > 0 ? ` (${c.ourFreeOrders} free)` : ""}`}
+                    />
+                    <Cell label="Our revenue" value={formatUsd(c.ourRevenueCents)} />
+                  </div>
+                </summary>
+
+                {/* Full page width from here — the whole reason the table had to go. */}
+                <div className="px-2 pb-4 pt-1">
+                  <CreativeStrip creatives={c.creatives} mediaById={mediaById} />
+
+                  <div className="mt-4 space-y-1">
+                    {c.creatives
+                      .filter((cr) => cr.tagged || cr.spendCents > 0)
+                      .slice(0, 25)
+                      .map((cr) => (
+                        <div
+                          key={cr.adId ?? cr.adName ?? Math.random().toString()}
+                          className="grid grid-cols-1 items-center gap-3 rounded-lg px-2 py-2 hover:bg-neutral-50 sm:grid-cols-[4.5rem_minmax(0,1fr)_7rem_9rem_9rem] dark:hover:bg-neutral-800/50"
+                        >
+                          <CreativeThumb
+                            adId={cr.adId}
+                            adName={cr.adName}
+                            media={cr.adId ? mediaById.get(cr.adId) : undefined}
+                            size={64}
+                          />
+
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">
+                              {cr.adName ?? cr.adId ?? "(unnamed)"}
                             </div>
-                          ))}
-                          {c.creatives.length > 25 ? (
-                            <p className="text-[11px] text-neutral-400">
-                              Showing the 25 highest-spend creatives of {c.creatives.length}.
-                            </p>
-                          ) : null}
+                            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                              <MeasureCell row={cr} />
+                              <Offers row={cr} />
+                            </div>
+                          </div>
+
+                          <div className="text-sm tabular-nums sm:text-right">
+                            <span className="text-neutral-400 sm:hidden">Spend </span>
+                            {formatUsd(cr.spendCents)}
+                          </div>
+
+                          {/* Meta's count and ours, side by side and always both shown. Sam
+                              found ads Meta credits with 11 conversions showing "0 orders"
+                              here; printing only ours made a correct page look broken. */}
+                          <div className="text-sm sm:text-right">
+                            <div className="tabular-nums text-neutral-600 dark:text-neutral-400">
+                              Meta{" "}
+                              <span className="font-medium text-neutral-800 dark:text-neutral-200">
+                                {formatNum(Math.round(cr.metaConversions))}
+                              </span>
+                            </div>
+                            <div className="tabular-nums text-neutral-600 dark:text-neutral-400">
+                              Ours{" "}
+                              <span className="font-medium text-neutral-800 dark:text-neutral-200">
+                                {formatNum(cr.ourOrders)}
+                              </span>
+                              {cr.ourFreeOrders > 0 ? (
+                                <span className="text-neutral-400"> ({cr.ourFreeOrders} free)</span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="text-sm sm:text-right">
+                            <div className="tabular-nums">{formatUsd(cr.ourRevenueCents)}</div>
+                            <div className="mt-0.5 text-xs">
+                              <CreativeGap row={cr} />
+                            </div>
+                          </div>
                         </div>
-                      </details>
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums">{formatUsd(c.spendCents)}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums">{pct(c.ctr, 2)}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums text-neutral-400">
-                      {x(c.metaRoas)}
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums">
-                      {formatNum(c.ourOrders)}
-                      {c.ourFreeOrders > 0 ? (
-                        <span className="text-neutral-400"> ({c.ourFreeOrders} free)</span>
-                      ) : null}
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums">
-                      {formatUsd(c.ourRevenueCents)}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <MeasureCell row={c} />
-                    </td>
-                    <td className="py-2">
-                      <Offers row={c} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      ))}
+                  </div>
+
+                  {c.creatives.length > 25 ? (
+                    <p className="mt-2 px-2 text-xs text-neutral-400">
+                      Showing the 25 highest-spend creatives of {c.creatives.length}.
+                    </p>
+                  ) : null}
+                </div>
+              </details>
+            ))}
           </div>
         </Card>
       </main>

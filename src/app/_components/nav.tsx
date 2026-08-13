@@ -87,6 +87,7 @@ const GROUPS: NavGroup[] = [
     label: "Forecast",
     links: [
       { href: "/forecast", label: "Forecast & goals", capability: "revenue" },
+      { href: "/goals", label: "Goal planner", capability: "revenue" },
       { href: "/team", label: "Team", capability: "team" },
     ],
   },
