@@ -1,9 +1,10 @@
 import { requireCapability } from "@/lib/auth/current-user";
-import { getRevenueSummary } from "@/metrics/overview";
 import { getAttributionCoverage } from "@/attribution/report";
 import { getTimeToConversion, getTouchDistribution } from "@/attribution/journeys";
 import { Card, Stat, formatNum, formatUsd } from "../_components/ui";
+import { resolvePageRange } from "@/lib/date-range.server";
 import { Nav } from "../_components/nav";
+import { DateRangePicker } from "../_components/date-range-picker";
 
 export const dynamic = "force-dynamic";
 
@@ -69,11 +70,16 @@ function Bar({
  *
  * Gated on `marketing`: acquisition performance, no cost or margin, no individual records.
  */
-export default async function JourneysPage() {
+export default async function JourneysPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requireCapability("marketing");
-  const summary = await getRevenueSummary();
-  const since = summary.firstOrderDate ?? "2025-10-01";
-  const until = summary.lastOrderDate ?? new Date().toISOString().slice(0, 10);
+  // Range from the URL, anchored to the last day with DATA — see lib/date-range.ts.
+  const { range, compareMode, comparison, bounds } = await resolvePageRange(await searchParams);
+  const since = range.since;
+  const until = range.until;
 
   const [coverage, distribution, latency] = await Promise.all([
     getAttributionCoverage(since, until),
@@ -96,8 +102,21 @@ export default async function JourneysPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight">Journeys</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            What attribution can and cannot see · {since} → {until}
+            What attribution can and cannot see · {range.label}
           </p>
+        </div>
+
+        <div className="mb-4">
+          <DateRangePicker
+            preset={range.preset}
+            compareMode={compareMode}
+            since={range.since}
+            until={range.until}
+            anchor={bounds.anchor}
+            dataStart={bounds.start}
+            lagDays={bounds.lagDays}
+            comparisonUnavailable={comparison === null}
+          />
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">

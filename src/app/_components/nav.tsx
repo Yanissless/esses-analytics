@@ -24,6 +24,7 @@ const LINKS: Array<{ href: string; label: string; capability?: Capability }> = [
   { href: "/profit", label: "Profit", capability: "margin" },
   { href: "/marketing", label: "Marketing", capability: "marketing" },
   { href: "/social", label: "Social", capability: "marketing" },
+  { href: "/creatives", label: "Creatives", capability: "marketing" },
   { href: "/audience", label: "Audience", capability: "marketing" },
   { href: "/journeys", label: "Journeys", capability: "marketing" },
   { href: "/customers", label: "Customers & LTV", capability: "customers" },

@@ -1,5 +1,4 @@
 import { requireCapability } from "@/lib/auth/current-user";
-import { getRevenueSummary } from "@/metrics/overview";
 import { getChurnCohorts } from "@/metrics/churn";
 import {
   getPaidCampaignPerformance,
@@ -10,7 +9,9 @@ import {
   SOCIAL_PLATFORM_METRICS_GAP,
 } from "@/metrics/social";
 import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
+import { resolvePageRange } from "@/lib/date-range.server";
 import { Nav } from "../_components/nav";
+import { DateRangePicker } from "../_components/date-range-picker";
 
 export const dynamic = "force-dynamic";
 
@@ -18,11 +19,16 @@ const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%
 const x = (v: number | null) => (v == null ? "—" : `${v.toFixed(2)}×`);
 const money = (v: number | null) => (v == null ? "—" : formatUsd(v));
 
-export default async function SocialPage() {
+export default async function SocialPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requireCapability("marketing");
-  const summary = await getRevenueSummary();
-  const since = summary.firstOrderDate ?? "2025-10-01";
-  const until = summary.lastOrderDate ?? new Date().toISOString().slice(0, 10);
+  // Range from the URL, anchored to the last day with DATA — see lib/date-range.ts.
+  const { range, compareMode, comparison, bounds } = await resolvePageRange(await searchParams);
+  const since = range.since;
+  const until = range.until;
 
   const [social, platforms, campaigns, landings, tagged, channelChurn] = await Promise.all([
     getSocialSummary(since, until),
@@ -51,9 +57,20 @@ export default async function SocialPage() {
           <h1 className="text-xl font-semibold tracking-tight">Social</h1>
           <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
             Social traffic followed through to revenue, retention and margin — paid and organic on
-            the same commerce outcome · {since} → {until}
+            the same commerce outcome · {range.label}
           </p>
         </div>
+
+        <DateRangePicker
+          preset={range.preset}
+          compareMode={compareMode}
+          since={range.since}
+          until={range.until}
+          anchor={bounds.anchor}
+          dataStart={bounds.start}
+          lagDays={bounds.lagDays}
+          comparisonUnavailable={comparison === null}
+        />
 
         {/* Say plainly what this page is and isn't, so the gap doesn't read as a bug. */}
         <div className="rounded-xl border border-blue-300 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">

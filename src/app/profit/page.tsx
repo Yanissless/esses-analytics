@@ -1,5 +1,4 @@
 import { requireCapability } from "@/lib/auth/current-user";
-import { getRevenueSummary } from "@/metrics/overview";
 import {
   getProductProfit,
   getProfitQuality,
@@ -9,17 +8,24 @@ import {
 import { BOUNDARY_META } from "@/metrics/margin-boundary";
 import { getMarginBoundary } from "@/metrics/margin-boundary.server";
 import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
+import { resolvePageRange } from "@/lib/date-range.server";
 import { Nav } from "../_components/nav";
+import { DateRangePicker } from "../_components/date-range-picker";
 
 export const dynamic = "force-dynamic";
 
 const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
 
-export default async function ProfitPage() {
+export default async function ProfitPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requireCapability("margin");
-  const summary = await getRevenueSummary();
-  const since = summary.firstOrderDate ?? "2025-10-01";
-  const until = summary.lastOrderDate ?? new Date().toISOString().slice(0, 10);
+  // Range from the URL, anchored to the last day with DATA — see lib/date-range.ts.
+  const { range, compareMode, comparison, bounds } = await resolvePageRange(await searchParams);
+  const since = range.since;
+  const until = range.until;
 
   const boundary = await getMarginBoundary();
   const [waterfall, products, worst, quality] = await Promise.all([
@@ -44,9 +50,20 @@ export default async function ProfitPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Profit</h1>
           <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
-            Contribution margin from net revenue down to CM3 · {since} → {until}
+            Contribution margin from net revenue down to CM3 · {range.label}
           </p>
         </div>
+
+        <DateRangePicker
+          preset={range.preset}
+          compareMode={compareMode}
+          since={range.since}
+          until={range.until}
+          anchor={bounds.anchor}
+          dataStart={bounds.start}
+          lagDays={bounds.lagDays}
+          comparisonUnavailable={comparison === null}
+        />
 
         {/* Never show a margin figure without saying which boundary produced it. */}
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-white p-3 text-sm dark:border-neutral-800 dark:bg-neutral-900">
