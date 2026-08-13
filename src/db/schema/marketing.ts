@@ -122,6 +122,75 @@ export const adInventoryDelivery = pgTable(
   ],
 );
 
+/**
+ * Ad creative previews — the picture, cached as bytes, plus where it came from.
+ *
+ * ## Why the image is stored rather than the URL
+ *
+ * Every image URL Meta returns is signed and expiring. A real one from this account carried
+ * `oe=6A839ADE`, which decodes to 2026-08-17 — four days out. Storing URLs gives you a page
+ * that works today, passes review, and quietly fills with broken images next week. So the
+ * bytes are cached and served from our own route.
+ *
+ * Base64 in a text column rather than `bytea`: drizzle's postgres.js driver round-trips
+ * Buffers awkwardly through raw SQL, and these are small. Correctness over elegance.
+ *
+ * ## Why `imageSource` exists
+ *
+ * No single field returns a usable picture. Ads resolve down a cascade, different ads stop at
+ * different rungs, and the same page ends up showing previews of very different quality — so
+ * the UI has to be able to say which is which rather than implying they are equivalent:
+ *
+ *  - `creative_image`  — an image ad's own asset. Full size.
+ *  - `video_thumbnail` — a video ad's poster frame from `object_story_spec`. Full size.
+ *  - `post_picture`    — a boosted post's picture, read from the post. Full size, and requires
+ *                        a PAGE-scoped token: the user token returns error #10 even with
+ *                        `pages_read_engagement` granted.
+ *  - `thumbnail`       — the 64x64 `thumbnail_url`, present on everything. A floor, not a
+ *                        choice: Meta silently ignores `.width(400).height(400)` on that
+ *                        field, so 64px is genuinely all it will give.
+ *
+ * Only ads appearing in `ad_spend` get bytes downloaded. The account has ~679 creatives and
+ * ~76 that actually spent money; fetching them all would be tens of MB of pictures for ads
+ * nobody will look at.
+ */
+export const adCreative = pgTable(
+  "ad_creative",
+  {
+    id: pk(),
+    platform: adPlatform("platform").notNull(),
+    /** Meta's ad ID. Joins to `ad_spend.ad_id`. */
+    adId: text("ad_id").notNull(),
+    adName: text("ad_name"),
+    campaignId: text("campaign_id"),
+    creativeId: text("creative_id"),
+    /** Meta's own classification: SHARE, VIDEO, PHOTO, LINK … */
+    objectType: text("object_type"),
+    /** ACTIVE, PAUSED, ARCHIVED — so a dead creative is labelled rather than dropped. */
+    status: text("status"),
+
+    /** The cached picture, base64. Null when every rung of the cascade failed. */
+    imageData: text("image_data"),
+    /** `image/jpeg`, `image/png`. Needed to serve the bytes back correctly. */
+    imageMime: text("image_mime"),
+    /** Which rung produced it — drives the honesty label in the UI. */
+    imageSource: text("image_source"),
+    /** Byte size, so a 2KB 64px thumbnail can be told apart from a real asset. */
+    imageBytes: doublePrecision("image_bytes"),
+
+    /** Link to the live post when there is one, so someone can go look at the real thing. */
+    permalink: text("permalink"),
+    /** When the bytes were last fetched, so a stale cache is visible rather than assumed. */
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("ad_creative_platform_ad_idx").on(t.platform, t.adId),
+    index("ad_creative_campaign_idx").on(t.campaignId),
+  ],
+);
+
 export type AdSpend = typeof adSpend.$inferSelect;
 export type AttributionTouchpoint = typeof attributionTouchpoints.$inferSelect;
 export type AdInventoryDelivery = typeof adInventoryDelivery.$inferSelect;
+export type AdCreative = typeof adCreative.$inferSelect;

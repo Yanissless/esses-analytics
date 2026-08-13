@@ -3,6 +3,7 @@ import { resolvePageRange } from "@/lib/date-range.server";
 import {
   getCampaignPerformance,
   getCreativeCoverage,
+  getCreativeMedia,
   isAcquisitionPlay,
   type CampaignRow,
   type CreativeRow,
@@ -10,6 +11,7 @@ import {
 import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
+import { CreativeStrip, CreativeThumb } from "./thumbnail";
 
 export const dynamic = "force-dynamic";
 
@@ -82,9 +84,10 @@ export default async function CreativesPage({
   const params = await searchParams;
   const { range, compareMode, comparison, bounds } = await resolvePageRange(params);
 
-  const [campaigns, coverage] = await Promise.all([
+  const [campaigns, coverage, mediaById] = await Promise.all([
     getCampaignPerformance(range.since, range.until),
     getCreativeCoverage(range.since, range.until),
+    getCreativeMedia(),
   ]);
 
   const taggedSpendShare =
@@ -228,27 +231,40 @@ export default async function CreativesPage({
                             <span className="ml-1 text-neutral-400">· untagged</span>
                           ) : null}
                         </summary>
-                        <div className="mt-2 space-y-1 border-l border-neutral-200 pl-3 dark:border-neutral-700">
+                        {/* Previews sit above the list so the campaign is recognisable at a
+                            glance — the whole point of asking "which creative is working". */}
+                        <div className="mb-3 mt-2">
+                          <CreativeStrip creatives={c.creatives} mediaById={mediaById} />
+                        </div>
+                        <div className="mt-2 space-y-2 border-l border-neutral-200 pl-3 dark:border-neutral-700">
                           {c.creatives.filter((cr) => cr.tagged || cr.spendCents > 0).slice(0, 25).map((cr) => (
                             <div
                               key={cr.adId ?? cr.adName ?? Math.random().toString()}
-                              className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5"
+                              className="flex items-start gap-3"
                             >
-                              <span className="min-w-[14rem] font-medium">
-                                {cr.adName ?? cr.adId ?? "(unnamed)"}
-                              </span>
-                              <span className="text-neutral-500 dark:text-neutral-400">
-                                {formatUsd(cr.spendCents)} spend
-                              </span>
-                              <span className="text-neutral-500 dark:text-neutral-400">
-                                {formatNum(cr.ourOrders)} order{cr.ourOrders === 1 ? "" : "s"}
-                                {cr.ourFreeOrders > 0 ? ` (${cr.ourFreeOrders} free)` : ""}
-                              </span>
-                              <span className="text-neutral-500 dark:text-neutral-400">
-                                {formatUsd(cr.ourRevenueCents)} rev
-                              </span>
-                              <MeasureCell row={cr} />
-                              <Offers row={cr} />
+                              <CreativeThumb
+                                adId={cr.adId}
+                                adName={cr.adName}
+                                media={cr.adId ? mediaById.get(cr.adId) : undefined}
+                                size={56}
+                              />
+                              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                                <span className="min-w-[14rem] font-medium">
+                                  {cr.adName ?? cr.adId ?? "(unnamed)"}
+                                </span>
+                                <span className="text-neutral-500 dark:text-neutral-400">
+                                  {formatUsd(cr.spendCents)} spend
+                                </span>
+                                <span className="text-neutral-500 dark:text-neutral-400">
+                                  {formatNum(cr.ourOrders)} order{cr.ourOrders === 1 ? "" : "s"}
+                                  {cr.ourFreeOrders > 0 ? ` (${cr.ourFreeOrders} free)` : ""}
+                                </span>
+                                <span className="text-neutral-500 dark:text-neutral-400">
+                                  {formatUsd(cr.ourRevenueCents)} rev
+                                </span>
+                                <MeasureCell row={cr} />
+                                <Offers row={cr} />
+                              </div>
                             </div>
                           ))}
                           {c.creatives.length > 25 ? (

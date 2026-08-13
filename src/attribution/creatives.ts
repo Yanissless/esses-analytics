@@ -326,3 +326,52 @@ export async function getCreativeCoverage(
     unmatchedAdIds: ((tagged?.unmatched as string[] | null) ?? []).filter(Boolean),
   };
 }
+
+/**
+ * Creative preview metadata, keyed by ad ID.
+ *
+ * `image_data` is deliberately NOT selected. The column holds base64 pictures — 651 rows of it
+ * is tens of megabytes, and pulling that into a page render to decide whether to show an
+ * `<img>` tag would be the whole point of caching them thrown away. The bytes are served
+ * separately by `/api/creative-image/[adId]`, one request per picture the browser asks for.
+ */
+export interface CreativeMedia {
+  adId: string;
+  /** Which rung of the cascade produced the picture. See `connectors/ads/creatives.ts`. */
+  imageSource: string | null;
+  imageBytes: number | null;
+  objectType: string | null;
+  status: string | null;
+  permalink: string | null;
+  /** True when only Meta's 64x64 thumbnail exists, so the UI can avoid upscaling it. */
+  thumbnailOnly: boolean;
+}
+
+export async function getCreativeMedia(): Promise<Map<string, CreativeMedia>> {
+  const media = await rows<{
+    ad_id: string;
+    image_source: string | null;
+    image_bytes: number | null;
+    object_type: string | null;
+    status: string | null;
+    permalink: string | null;
+  }>(sql`
+    SELECT ad_id, image_source, image_bytes, object_type, status, permalink
+      FROM ad_creative
+     WHERE platform = 'meta' AND image_data IS NOT NULL
+  `);
+
+  const out = new Map<string, CreativeMedia>();
+  for (const r of media) {
+    out.set(r.ad_id, {
+      adId: r.ad_id,
+      imageSource: r.image_source,
+      imageBytes: r.image_bytes === null ? null : Number(r.image_bytes),
+      objectType: r.object_type,
+      status: r.status,
+      permalink: r.permalink,
+      thumbnailOnly: r.image_source === "thumbnail",
+    });
+  }
+  return out;
+}
