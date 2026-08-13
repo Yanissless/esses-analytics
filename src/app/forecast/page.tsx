@@ -8,7 +8,8 @@ import {
   getLastMetricsDate,
   getMonthlyActuals,
 } from "@/metrics/forecast.server";
-import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
+import { Badge, Card, Stat, TargetBadge, formatNum, formatUsd } from "../_components/ui";
+import { paceFromProgress } from "@/metrics/goal-planner";
 import { Nav } from "../_components/nav";
 import { GoalForm } from "./forms";
 
@@ -136,6 +137,10 @@ export default async function ForecastPage() {
                         no target set
                       </span>
                     )}
+                    {/* Pace, not raw attainment: against a whole month's target every metric
+                        looks catastrophic on the 3rd. `paceFromProgress` keeps the conversion
+                        in one place rather than a `- 1` on every tile. */}
+                    <TargetBadge variance={paceFromProgress(p.pace)} />
                   </div>
 
                   {p.targetAmount != null ? (

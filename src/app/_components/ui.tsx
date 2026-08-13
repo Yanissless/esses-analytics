@@ -109,6 +109,7 @@ export function Stat({
   hint,
   emphasis = false,
   trailing,
+  target,
 }: {
   label: string;
   value: string;
@@ -116,6 +117,8 @@ export function Stat({
   emphasis?: boolean;
   /** Sits on the value's baseline — a `DeltaBadge`, typically. */
   trailing?: ReactNode;
+  /** Sits below the hint — a `TargetBadge`, typically. Absent when no target is set. */
+  target?: ReactNode;
 }) {
   return (
     <div
@@ -149,7 +152,61 @@ export function Stat({
           {hint}
         </div>
       ) : null}
+      {target ? <div className="mt-2">{target}</div> : null}
     </div>
+  );
+}
+
+/**
+ * The "5% AHEAD OF TARGET" / "10% BEHIND TARGET" pill.
+ *
+ * Three rules it exists to enforce, all of which are easy to get wrong in a way that reads as
+ * confident rather than broken:
+ *
+ *  1. **No target set renders nothing.** Not a grey "0%", not "—". A tile with no pill says
+ *     "nobody set a target for this"; a pill showing 0% says "you have hit none of it".
+ *  2. **The comparison is pace-adjusted.** Against a whole month's target, every metric is
+ *     catastrophically behind on the 3rd. The caller passes a variance already pro-rated by
+ *     elapsed time — see `paceVariance`.
+ *  3. **Colour is never the only channel.** The words "ahead"/"behind" carry the meaning, so
+ *     it survives greyscale printing and colour blindness. Same rule as the charts.
+ *
+ * `polarity` matters because down is good for some metrics. Being 10% "behind" a CAC target
+ * is a win, and a red pill there trains people to ignore red.
+ */
+export function TargetBadge({
+  variance,
+  polarity = "higher-is-better",
+  label = "target",
+}: {
+  /** Pro-rated variance: +0.05 is 5% ahead. Null when no target is set — renders nothing. */
+  variance: number | null;
+  polarity?: "higher-is-better" | "lower-is-better";
+  label?: string;
+}) {
+  if (variance === null || !Number.isFinite(variance)) return null;
+
+  const ahead = polarity === "higher-is-better" ? variance >= 0 : variance <= 0;
+  const pct = Math.abs(variance) * 100;
+  // Under half a percent, "0% ahead" is noise dressed as a signal.
+  const text =
+    pct < 0.5
+      ? `ON ${label.toUpperCase()}`
+      : `${pct.toFixed(0)}% ${ahead ? "AHEAD OF" : "BEHIND"} ${label.toUpperCase()}`;
+
+  const tone =
+    pct < 0.5
+      ? "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200"
+      : ahead
+        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+        : "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300";
+
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${tone}`}
+    >
+      {text}
+    </span>
   );
 }
 

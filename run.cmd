@@ -29,6 +29,7 @@ if "%~1"=="" (
   echo   check:analyst    verify the /ask analyst: every tool, and the role boundary
   echo   sync:instagram   pull Instagram follower counts via the Graph API
   echo   sync:creatives   cache ad creative previews from Meta
+  echo   set:goals        set annual targets, split into monthly goals
   echo   db:migrate       create/update database tables
   echo   db:seed          create the first admin login
   echo   backfill         load history  --since=2025-10-01 --source=shopify
