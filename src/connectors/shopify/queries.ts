@@ -59,6 +59,17 @@ export const ORDERS_QUERY = /* GraphQL */ `
               }
             }
           }
+          # Attribution carried on the ORDER itself, set by esses.com at checkout.
+          #
+          # This is the only route that can work for this business. Ads point at esses.com
+          # (Craft), checkout happens in Shopify, and Shopify's analytics only observe pages
+          # Shopify serves — so customerJourneySummary below records the checkout and nothing
+          # before it. Measured over 30 recent orders: zero carried a UTM anywhere, and every
+          # landingPageUrl was a checkout URL.
+          #
+          # Cart attributes survive that handoff because they travel with the cart rather
+          # than being inferred from a page view. See docs/esses-com-attribution.md.
+          customAttributes { key value }
           customerJourneySummary {
             ready
             daysToConversion

@@ -21,6 +21,8 @@ import { resolveCustomer } from "../customers";
 import { classifyOrder } from "./revenue-rules";
 import {
   mapJourneyToTouchpoints,
+  mapOrderAttributesToTouchpoint,
+  type OrderAttribute,
   saveTouchpoints,
   type JourneySummary,
 } from "../../attribution/ingest";
@@ -189,6 +191,7 @@ export interface OrderNode {
    * (and the app has the customer-data access it requires); absent is fine —
    * attribution simply has nothing to record for that order.
    */
+  customAttributes?: OrderAttribute[] | null;
   customerJourneySummary?: JourneySummary | null;
   /** Present when the export includes fulfilments (bulk JSONL nests them). */
   fulfillments?: Array<{
@@ -322,12 +325,25 @@ export async function ingestOrder(node: OrderNode): Promise<void> {
   // Attribution touchpoints from Shopify's own customer journey. Only replaces
   // rows when a journey is actually present, so an export without the field never
   // wipes previously-ingested touchpoints.
-  if (node.customerJourneySummary) {
+  if (node.customerJourneySummary || node.customAttributes?.length) {
+    const processedAt = asDate(node.processedAt) ?? new Date();
     const touchpoints = mapJourneyToTouchpoints(node.customerJourneySummary, {
       customerId,
       orderId: order.id,
-      fallbackAt: asDate(node.processedAt) ?? new Date(),
+      fallbackAt: processedAt,
     });
+
+    // Attribution the storefront attached to the cart. Appended rather than merged into
+    // the journey rows: it answers a question the journey cannot (WHICH ad), so keeping it
+    // as its own touchpoint leaves the journey's account of the visit intact and lets the
+    // two be compared instead of one silently overwriting the other.
+    const fromAttributes = mapOrderAttributesToTouchpoint(node.customAttributes, {
+      customerId,
+      orderId: order.id,
+      occurredAt: processedAt,
+    });
+    if (fromAttributes) touchpoints.push(fromAttributes);
+
     await saveTouchpoints(order.id, touchpoints);
   }
 

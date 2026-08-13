@@ -206,3 +206,118 @@ export async function stampAcquisitionChannels(): Promise<number> {
   logger.info("Acquisition channels stamped", { customersUpdated: n });
   return n;
 }
+
+/** Cart attributes as Shopify returns them. */
+export interface OrderAttribute {
+  key?: string | null;
+  value?: string | null;
+}
+
+/** Attribute keys we read, mapped to the touchpoint field they populate. */
+const ATTRIBUTE_KEYS: Record<string, keyof Pick<
+  TouchpointInput,
+  "source" | "medium" | "campaign" | "content" | "term"
+>> = {
+  utm_source: "source",
+  utm_medium: "medium",
+  utm_campaign: "campaign",
+  utm_content: "content",
+  utm_term: "term",
+};
+
+const CLICK_ID_KEYS: Array<[string, string]> = [
+  ["fbclid", "meta"],
+  ["gclid", "google"],
+  ["ttclid", "tiktok"],
+];
+
+/**
+ * Build a touchpoint from attribution the STOREFRONT attached to the order.
+ *
+ * ## Why this outranks Shopify's own journey
+ *
+ * Ads point at esses.com (Craft); checkout happens in Shopify. Shopify's analytics only see
+ * pages Shopify serves, so `customerJourneySummary` for this business records the checkout
+ * and nothing before it — measured over 30 recent orders, every `landingPageUrl` was a
+ * checkout URL and not one carried a UTM. The journey is therefore not wrong so much as
+ * blind to everything that matters: it can tell you the referrer was instagram.com, but
+ * never which ad.
+ *
+ * A cart attribute travels WITH the cart rather than being inferred from a page view, so it
+ * survives the handoff. When one is present it is first-party, exact, and set by our own
+ * site — strictly better evidence than a referrer host, so it is emitted as its own
+ * touchpoint stamped at the order time.
+ *
+ * Returns null when no attribution attributes are present, which is every order until
+ * esses.com ships its half. See `docs/esses-com-attribution.md`.
+ */
+export function mapOrderAttributesToTouchpoint(
+  attributes: OrderAttribute[] | null | undefined,
+  ctx: { customerId: string | null; orderId: string; occurredAt: Date },
+): TouchpointInput | null {
+  if (!attributes || attributes.length === 0) return null;
+
+  const bag = new Map<string, string>();
+  for (const a of attributes) {
+    const k = (a?.key ?? "").trim().toLowerCase();
+    const v = (a?.value ?? "").trim();
+    if (k && v) bag.set(k, v);
+  }
+  if (bag.size === 0) return null;
+
+  const out: Partial<TouchpointInput> = {};
+  let any = false;
+  for (const [key, field] of Object.entries(ATTRIBUTE_KEYS)) {
+    const v = bag.get(key);
+    if (v) {
+      out[field] = v;
+      any = true;
+    }
+  }
+
+  let clickId: string | null = null;
+  let clickIdType: string | null = null;
+  for (const [key, type] of CLICK_ID_KEYS) {
+    const v = bag.get(key);
+    if (v) {
+      clickId = v;
+      clickIdType = type;
+      any = true;
+      break;
+    }
+  }
+
+  // A referrer alone is not attribution — Shopify's journey already supplies that, and
+  // emitting a duplicate touchpoint for it would inflate path length under linear
+  // attribution without adding information.
+  if (!any) return null;
+
+  const landingUrl = bag.get("landing_page") ?? null;
+  const referrer = bag.get("referrer") ?? null;
+
+  const channel = resolveChannel({
+    utmSource: out.source ?? null,
+    utmMedium: out.medium ?? null,
+    utmCampaign: out.campaign ?? null,
+    landingPage: landingUrl,
+    referrerUrl: referrer,
+    clickId,
+    clickIdType,
+  });
+
+  return {
+    customerId: ctx.customerId,
+    orderId: ctx.orderId,
+    channel,
+    source: out.source ?? null,
+    medium: out.medium ?? null,
+    campaign: out.campaign ?? null,
+    content: out.content ?? null,
+    term: out.term ?? null,
+    clickId,
+    clickIdType,
+    landingUrl,
+    referrer,
+    occurredAt: ctx.occurredAt,
+  };
+}
