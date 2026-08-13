@@ -57,6 +57,60 @@ function MeasureCell({ row }: { row: CampaignRow | CreativeRow }) {
   );
 }
 
+/**
+ * Names the gap between Meta's conversion count and ours, per creative.
+ *
+ * Sam compared Ads Manager against this page: Meta credited "Artist Table - GYFIF - Copy"
+ * with 11 website purchases while the page showed 0 orders. Both are correct and they are
+ * not the same measurement:
+ *
+ *  - **Meta** counts a purchase when its pixel fires within its attribution window, including
+ *    1-day view-through and cross-device. It needs no link tagging, because the pixel
+ *    recognises the browser.
+ *  - **Ours** counts an order whose converting click carried `utm_content=<ad id>`. Untagged
+ *    links are invisible to it no matter how many sales they caused.
+ *
+ * So "0 orders" against a non-zero Meta figure means UNMEASURED here, not unsuccessful — and
+ * with 1 of 51 creatives tagged, that is currently most of them. The label says which it is,
+ * because a bare 0 next to Meta's 11 reads as a bug in the app.
+ */
+function CreativeGap({ row }: { row: CreativeRow }) {
+  const meta = Math.round(row.metaConversions);
+  if (meta === 0 && row.ourOrders === 0) return null;
+
+  if (row.ourOrders === 0 && meta > 0) {
+    return (
+      <span
+        className="text-amber-600 dark:text-amber-400"
+        title="Meta's pixel saw conversions this creative's links never tagged. Not a discrepancy in the data — a gap in UTM tagging."
+      >
+        untagged — Meta sees {meta}, we can&apos;t trace {meta === 1 ? "it" : "them"}
+      </span>
+    );
+  }
+  if (meta > row.ourOrders) {
+    return (
+      <span
+        className="text-neutral-400"
+        title="Meta counts view-through and cross-device conversions we cannot observe."
+      >
+        +{meta - row.ourOrders} Meta-only
+      </span>
+    );
+  }
+  if (row.ourOrders > meta) {
+    return (
+      <span
+        className="text-neutral-400"
+        title="We traced more orders than Meta credited — usually a conversion falling outside Meta's attribution window."
+      >
+        +{row.ourOrders - meta} beyond Meta&apos;s window
+      </span>
+    );
+  }
+  return <span className="text-emerald-600 dark:text-emerald-400">agrees</span>;
+}
+
 function Offers({ row }: { row: CampaignRow | CreativeRow }) {
   if (row.discounts.length === 0) return <span className="text-neutral-400">—</span>;
   return (
@@ -253,22 +307,41 @@ export default async function CreativesPage({
                                 media={cr.adId ? mediaById.get(cr.adId) : undefined}
                                 size={56}
                               />
-                              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                                <span className="min-w-[14rem] font-medium">
-                                  {cr.adName ?? cr.adId ?? "(unnamed)"}
-                                </span>
-                                <span className="text-neutral-500 dark:text-neutral-400">
-                                  {formatUsd(cr.spendCents)} spend
-                                </span>
-                                <span className="text-neutral-500 dark:text-neutral-400">
-                                  {formatNum(cr.ourOrders)} order{cr.ourOrders === 1 ? "" : "s"}
-                                  {cr.ourFreeOrders > 0 ? ` (${cr.ourFreeOrders} free)` : ""}
-                                </span>
-                                <span className="text-neutral-500 dark:text-neutral-400">
-                                  {formatUsd(cr.ourRevenueCents)} rev
-                                </span>
-                                <MeasureCell row={cr} />
-                                <Offers row={cr} />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                                  <span className="font-medium">
+                                    {cr.adName ?? cr.adId ?? "(unnamed)"}
+                                  </span>
+                                  <span className="text-neutral-500 dark:text-neutral-400">
+                                    {formatUsd(cr.spendCents)} spend
+                                  </span>
+                                  <MeasureCell row={cr} />
+                                  <Offers row={cr} />
+                                </div>
+                                {/* The two order counts side by side, always both shown.
+                                    Sam compared Meta's per-ad purchases against this page and
+                                    found ads Meta credits with 11 conversions showing "0
+                                    orders" here. Both numbers are right; they answer different
+                                    questions. Printing only ours made the page look broken. */}
+                                <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-0.5 text-xs">
+                                  <span className="text-neutral-500 dark:text-neutral-400">
+                                    Meta{" "}
+                                    <span className="font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
+                                      {formatNum(Math.round(cr.metaConversions))}
+                                    </span>{" "}
+                                    purchase{Math.round(cr.metaConversions) === 1 ? "" : "s"}
+                                  </span>
+                                  <span className="text-neutral-500 dark:text-neutral-400">
+                                    Ours{" "}
+                                    <span className="font-medium tabular-nums text-neutral-700 dark:text-neutral-300">
+                                      {formatNum(cr.ourOrders)}
+                                    </span>{" "}
+                                    order{cr.ourOrders === 1 ? "" : "s"}
+                                    {cr.ourFreeOrders > 0 ? ` (${cr.ourFreeOrders} free)` : ""} ·{" "}
+                                    {formatUsd(cr.ourRevenueCents)}
+                                  </span>
+                                  <CreativeGap row={cr} />
+                                </div>
                               </div>
                             </div>
                           ))}
