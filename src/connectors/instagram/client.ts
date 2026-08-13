@@ -62,6 +62,25 @@ export interface InstagramAccount {
 }
 
 /**
+ * Memoised for the life of the process.
+ *
+ * Discovery is two HTTP calls and every insight request needs the account ID first. A 30-day
+ * backfill asks for five metrics a day, so without this it would spend 300 requests
+ * re-answering "which account?" — enough to hit Meta's rate limit on a backfill and blame it
+ * on the metrics. Held as the promise rather than the value so concurrent callers share one
+ * in-flight lookup instead of racing to start their own.
+ *
+ * Scoped to one process, so a long-running server picks up a re-linked account on restart. The
+ * account ID does not change during a sync.
+ */
+let accountPromise: Promise<InstagramAccount | null> | null = null;
+
+/** Forces the next lookup to hit the API. For tests and for a re-link mid-process. */
+export function resetInstagramAccountCache(): void {
+  accountPromise = null;
+}
+
+/**
  * Finds the Instagram business account, by discovery rather than configuration.
  *
  * Deliberately no `INSTAGRAM_ACCOUNT_ID` env var: the ID is already reachable through
@@ -70,6 +89,18 @@ export interface InstagramAccount {
  * legitimate state (one of the two Esses Pages has none) rather than an error.
  */
 export async function getInstagramAccount(): Promise<InstagramAccount | null> {
+  // A failed lookup is not cached — clearing on rejection means a transient network error
+  // doesn't poison every later call in the process with the same failure.
+  if (!accountPromise) {
+    accountPromise = fetchInstagramAccount().catch((err) => {
+      accountPromise = null;
+      throw err;
+    });
+  }
+  return accountPromise;
+}
+
+async function fetchInstagramAccount(): Promise<InstagramAccount | null> {
   const pages = await get<{
     data?: Array<{ name?: string; instagram_business_account?: { id?: string } }>;
   }>("/me/accounts?fields=name,instagram_business_account");
@@ -154,8 +185,59 @@ export interface AccountInsights {
   profileViews: number | null;
   accountsEngaged: number | null;
   totalInteractions: number | null;
+  /**
+   * Metrics that had to be summed from a daily series because Meta would not give a window
+   * total. Those figures DOUBLE-COUNT repeat viewers and must be labelled, not quoted as
+   * unique reach. Empty in the normal case.
+   */
+  summedMetrics: string[];
   /** Metrics Meta refused, with its reason. Reported rather than shown as zero. */
   unavailable: Array<{ metric: string; reason: string }>;
+}
+
+/** One day's organic figures. Nulls are "Meta didn't give us this", never zero. */
+export interface DailyInsights {
+  date: string;
+  reach: number | null;
+  views: number | null;
+  profileViews: number | null;
+  accountsEngaged: number | null;
+  totalInteractions: number | null;
+  unavailable: Array<{ metric: string; reason: string }>;
+}
+
+/**
+ * One day's figures, for storing a daily series.
+ *
+ * Separate from `getAccountInsights` rather than derived from it, because a window total is
+ * not the sum of its days. Reach de-duplicates accounts *across the whole window asked for*:
+ * 28 days of reach is strictly less than 28 daily reach figures added up, since anyone who
+ * saw you twice is counted once in the first and twice in the second. Deriving daily rows by
+ * dividing a window total — or presenting summed daily reach as window reach — inflates it by
+ * however loyal the audience is, which is exactly backwards.
+ *
+ * So each day is its own request. That costs one call per metric per day; the nightly run only
+ * ever needs yesterday.
+ *
+ * The window is **half-open**: `since=day, until=day+1`. Meta returns periods whose boundary
+ * falls inside the range, so `since === until` is a zero-length window and comes back empty
+ * for every metric — not an error, just nothing, which is the failure mode most likely to be
+ * read as "no activity that day" and stored as zeros.
+ */
+export async function getDailyInsights(day: string): Promise<DailyInsights> {
+  const next = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  // quiet: a 30-day backfill would otherwise log the same "metric unavailable" 30 times and
+  // bury everything else. The caller reports it once, having seen all the days.
+  const w = await getAccountInsights(day, next, { quiet: true });
+  return {
+    date: day,
+    reach: w.reach,
+    views: w.views,
+    profileViews: w.profileViews,
+    accountsEngaged: w.accountsEngaged,
+    totalInteractions: w.totalInteractions,
+    unavailable: w.unavailable,
+  };
 }
 
 /**
@@ -177,7 +259,11 @@ export interface AccountInsights {
  *
  * `impressions` was retired outright for accounts created after mid-2024 — `views` replaced it.
  */
-export async function getAccountInsights(since: string, until: string): Promise<AccountInsights> {
+export async function getAccountInsights(
+  since: string,
+  until: string,
+  opts: { quiet?: boolean } = {},
+): Promise<AccountInsights> {
   const acct = await getInstagramAccount();
   const unavailable: Array<{ metric: string; reason: string }> = [];
   if (!acct) {
@@ -189,27 +275,25 @@ export async function getAccountInsights(since: string, until: string): Promise<
       profileViews: null,
       accountsEngaged: null,
       totalInteractions: null,
+      summedMetrics: [],
       unavailable: [{ metric: "all", reason: "no linked Instagram business account" }],
     };
   }
 
   const window = `since=${since}&until=${until}`;
-
-  /** Sums a `period=day` series. */
-  const asSeries = async (metric: string): Promise<number> => {
-    const res = await get<{ data?: Array<{ values?: Array<{ value?: number }> }> }>(
-      `/${acct.id}/insights?metric=${metric}&period=day&${window}`,
-    );
-    const values = res.data?.[0]?.values ?? [];
-    if (values.length === 0) throw new Error("no data returned for this window");
-    return values.reduce((a, v) => a + Number(v.value ?? 0), 0);
-  };
+  const summed: string[] = [];
 
   /**
-   * Reads the single figure Meta returns for a total_value metric.
+   * The de-duplicated figure for the whole window. **Tried first, and that matters.**
    *
-   * `period=day` stays on the request: total_value is not an alternative to period, it is an
-   * extra dimension on top of it. Dropping it earns "The parameter period is required".
+   * `reach` accepts both shapes and they mean different things. `metric_type=total_value`
+   * returns distinct accounts across the window; `period=day` returns a daily series whose sum
+   * counts anyone who saw you on three days three times. An earlier version summed the series
+   * and labelled the result "reach", which inflated a 28-day figure by the whole of repeat
+   * viewership — invisible, because both numbers look like plausible reach.
+   *
+   * `period=day` stays on the request: total_value is an extra dimension on top of period, not
+   * an alternative to it. Dropping it earns "The parameter period is required".
    */
   const asTotal = async (metric: string): Promise<number> => {
     const res = await get<{ data?: Array<{ total_value?: { value?: number } }> }>(
@@ -220,25 +304,32 @@ export async function getAccountInsights(since: string, until: string): Promise<
     return Number(total);
   };
 
+  /** Fallback: sum a `period=day` series. Recorded in `summedMetrics` when used. */
+  const asSeries = async (metric: string): Promise<number> => {
+    const res = await get<{ data?: Array<{ values?: Array<{ value?: number }> }> }>(
+      `/${acct.id}/insights?metric=${metric}&period=day&${window}`,
+    );
+    const values = res.data?.[0]?.values ?? [];
+    if (values.length === 0) throw new Error("no data returned for this window");
+    summed.push(metric);
+    return values.reduce((a, v) => a + Number(v.value ?? 0), 0);
+  };
+
   const one = async (metric: string): Promise<number | null> => {
     try {
-      return await asSeries(metric);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // Meta names the fix in the error text. Take it at its word, once.
-      if (msg.includes("metric_type=total_value")) {
-        try {
-          return await asTotal(metric);
-        } catch (err2) {
-          unavailable.push({
-            metric,
-            reason: err2 instanceof Error ? err2.message : String(err2),
-          });
-          return null;
-        }
+      return await asTotal(metric);
+    } catch (totalErr) {
+      try {
+        return await asSeries(metric);
+      } catch (seriesErr) {
+        // Report whichever error is more informative — the series path is the fallback, so
+        // its failure is usually the real one ("no data for this window").
+        unavailable.push({
+          metric,
+          reason: seriesErr instanceof Error ? seriesErr.message : String(totalErr),
+        });
+        return null;
       }
-      unavailable.push({ metric, reason: msg });
-      return null;
     }
   };
 
@@ -250,8 +341,18 @@ export async function getAccountInsights(since: string, until: string): Promise<
     one("total_interactions"),
   ]);
 
-  if (unavailable.length > 0) {
+  if (unavailable.length > 0 && !opts.quiet) {
     logger.warn("some Instagram insight metrics unavailable", { unavailable });
   }
-  return { since, until, reach, views, profileViews, accountsEngaged, totalInteractions, unavailable };
+  return {
+    since,
+    until,
+    reach,
+    views,
+    profileViews,
+    accountsEngaged,
+    totalInteractions,
+    summedMetrics: summed,
+    unavailable,
+  };
 }

@@ -22,7 +22,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db/client";
 import { logger } from "../../lib/logger";
 import { reconstructTotals } from "../../metrics/audience-growth";
-import { getFollowerDeltas, getInstagramAccount } from "./client";
+import { getDailyInsights, getFollowerDeltas, getInstagramAccount } from "./client";
 
 /** Sources that represent a real reading and must not be replaced by a derived one. */
 const OBSERVED = ["meta_api", "manual", "csv"] as const;
@@ -106,6 +106,85 @@ export async function syncInstagramAudience(): Promise<InstagramSyncResult> {
     skippedObserved: derived.skipped,
     warnings,
   };
+}
+
+export interface InstagramInsightsResult {
+  daysWritten: number;
+  daysRequested: number;
+  /** Metrics Meta refused, deduplicated across days. */
+  unavailable: Array<{ metric: string; reason: string }>;
+}
+
+/**
+ * Stores daily reach/views/engagement.
+ *
+ * Defaults to 2 days, not 30, because that is what a nightly run needs: yesterday plus a
+ * re-fetch of the day before, since Meta's same-day figures are provisional and settle over
+ * the following ~24 hours. Storing a provisional number once and never revisiting it leaves a
+ * permanently-low day in the series that nothing ever corrects.
+ *
+ * Pass a larger `days` for the one-off backfill. Each day is one request per metric — five
+ * metrics, so 30 days is 150 calls — which is fine occasionally and wrong every night.
+ *
+ * **Today is excluded.** A partial day stored as if complete produces a cliff at the end of
+ * every chart, and the next run would overwrite it anyway.
+ */
+export async function syncInstagramInsights(days = 2): Promise<InstagramInsightsResult> {
+  const account = await getInstagramAccount();
+  if (!account) return { daysWritten: 0, daysRequested: 0, unavailable: [] };
+
+  // Yesterday backwards. Today is deliberately not included.
+  const wanted: string[] = [];
+  for (let i = 1; i <= days; i++) {
+    wanted.push(new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10));
+  }
+
+  const seen = new Map<string, string>();
+  let daysWritten = 0;
+
+  for (const day of wanted) {
+    const d = await getDailyInsights(day);
+    for (const u of d.unavailable) if (!seen.has(u.metric)) seen.set(u.metric, u.reason);
+
+    // A day where Meta gave us nothing at all is not written: an all-null row is
+    // indistinguishable from a real day with no activity once it is in the table.
+    const anything =
+      d.reach !== null ||
+      d.views !== null ||
+      d.profileViews !== null ||
+      d.accountsEngaged !== null ||
+      d.totalInteractions !== null;
+    if (!anything) continue;
+
+    await db.execute(sql`
+      INSERT INTO social_insights_daily
+        (platform, captured_on, reach, views, profile_views, accounts_engaged,
+         total_interactions, source)
+      VALUES ('instagram', ${day}, ${d.reach}, ${d.views}, ${d.profileViews},
+              ${d.accountsEngaged}, ${d.totalInteractions}, 'meta_api')
+      ON CONFLICT (platform, captured_on) DO UPDATE SET
+        reach              = EXCLUDED.reach,
+        views              = EXCLUDED.views,
+        profile_views      = EXCLUDED.profile_views,
+        accounts_engaged   = EXCLUDED.accounts_engaged,
+        total_interactions = EXCLUDED.total_interactions,
+        source             = EXCLUDED.source,
+        updated_at         = now()
+    `);
+    daysWritten += 1;
+  }
+
+  const unavailable = [...seen].map(([metric, reason]) => ({ metric, reason }));
+  if (unavailable.length > 0) {
+    logger.warn("some Instagram insight metrics unavailable", { unavailable });
+  }
+  logger.info("instagram insights sync done", {
+    account: account.username ?? account.id,
+    daysWritten,
+    daysRequested: wanted.length,
+  });
+
+  return { daysWritten, daysRequested: wanted.length, unavailable };
 }
 
 /**

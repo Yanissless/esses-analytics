@@ -16,7 +16,7 @@ import { shopifyConnector } from "../../connectors/shopify";
 import { skioConnector } from "../../connectors/skio";
 import { stripeConnector } from "../../connectors/stripe";
 import { AD_PLATFORMS, asConnector } from "../../connectors/ads";
-import { syncInstagramAudience } from "../../connectors/instagram/ingest";
+import { syncInstagramAudience, syncInstagramInsights } from "../../connectors/instagram/ingest";
 import { rebuildDailyMetrics } from "../../metrics/rollup";
 import type { Connector } from "../../connectors/types";
 
@@ -94,13 +94,15 @@ async function runInstagram(configured: boolean): Promise<SourceResult> {
   try {
     const r = await withSyncRun("instagram", "incremental", async () => {
       const s = await syncInstagramAudience();
-      const written = s.observedWritten + s.reconstructedWritten;
+      // Default window (2 days) — reach settles over ~24h, so yesterday gets re-fetched.
+      const i = await syncInstagramInsights();
+      const written = s.observedWritten + s.reconstructedWritten + i.daysWritten;
       return {
         source: "instagram" as const,
         // rowsIn counts what Meta gave us; skipped days are read but deliberately not written.
         rowsIn: written + s.skippedObserved,
         rowsUpserted: written,
-        warnings: s.warnings,
+        warnings: [...s.warnings, ...i.unavailable.map((u) => `${u.metric}: ${u.reason}`)],
       };
     });
     logger.info("instagram sync done", { rows: r.rowsUpserted });

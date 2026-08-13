@@ -8,16 +8,114 @@ import {
   getTaggedCampaigns,
   SOCIAL_PLATFORM_METRICS_GAP,
 } from "@/metrics/social";
+import { getSocialInsights, type SocialInsightsSummary } from "@/metrics/social-insights";
 import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
 import { resolvePageRange } from "@/lib/date-range.server";
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
+import { ReachSparkline } from "./reach-chart";
 
 export const dynamic = "force-dynamic";
 
 const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
 const x = (v: number | null) => (v == null ? "—" : `${v.toFixed(2)}×`);
 const money = (v: number | null) => (v == null ? "—" : formatUsd(v));
+const num = (v: number | null) => (v == null ? "—" : formatNum(Math.round(v)));
+
+/**
+ * Organic Instagram reach and engagement.
+ *
+ * The headline is **average daily reach**, not a range total, and that is a deliberate choice
+ * rather than a limitation. Reach counts distinct accounts, so a 28-day total is not the sum of
+ * 28 daily figures — for this account the sum overstates the truth by roughly half. A tile
+ * labelled "reach" showing a summed figure would be wrong in a way nobody could see, so the sum
+ * appears only where it is named as an upper bound.
+ */
+function InsightsPanel({ insights: i }: { insights: SocialInsightsSummary }) {
+  if (i.daysWithData === 0) {
+    return (
+      <Card
+        title="Instagram reach and engagement"
+        subtitle="No stored figures for this range."
+      >
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          Nothing recorded between {i.since} and {i.until}. Meta serves these over a rolling
+          window, so run <code className="text-xs">run.cmd sync:instagram --days=30</code> to
+          fill what it still has — anything older than that is gone for good.
+        </p>
+      </Card>
+    );
+  }
+
+  const coverage =
+    i.daysWithData < i.daysInRange
+      ? `${i.daysWithData} of ${i.daysInRange} days have data`
+      : `all ${i.daysInRange} days`;
+
+  return (
+    <Card
+      title="Instagram reach and engagement"
+      subtitle={`Account-level organic performance · ${coverage}`}
+    >
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat
+          label="Reach / day"
+          value={num(i.reachDailyAvg)}
+          hint="distinct accounts, averaged over days with data"
+          emphasis
+        />
+        <Stat
+          label="Best day"
+          value={i.reachPeak ? formatNum(i.reachPeak.reach) : "—"}
+          hint={i.reachPeak ? i.reachPeak.date : "—"}
+        />
+        <Stat
+          label="Engaged / reached"
+          value={pct(i.engagementRatePerReach)}
+          hint="accounts that interacted ÷ accounts reached"
+        />
+        <Stat
+          label="Profile visits / reached"
+          value={pct(i.profileViewRatePerReach)}
+          hint={`${num(i.profileViews)} visits — closest thing to a click-through`}
+        />
+      </div>
+
+      <div className="mt-4">
+        <ReachSparkline points={i.points} />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <Stat
+          label="Views"
+          value={num(i.views)}
+          hint={`${i.viewsPerReachedAccount?.toFixed(1) ?? "—"} per account reached`}
+        />
+        <Stat label="Interactions" value={num(i.totalInteractions)} hint="likes, comments, shares, saves" />
+        <Stat
+          label="Reach, summed"
+          value={num(i.summedReachUpperBound)}
+          hint="upper bound only — see the note below"
+        />
+      </div>
+
+      <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
+        <strong>Why there is no single &ldquo;reach for this range&rdquo; figure.</strong> Reach
+        counts distinct accounts, so it cannot be added up: someone who saw you on ten days is one
+        account, not ten. The summed figure above is what you get by adding the daily rows, and it
+        is an upper bound you would only reach if no account ever saw you twice — for this account
+        it runs roughly 50% above the truth. A genuine de-duplicated total has to be asked of Meta
+        for that exact window, because de-duplicating needs the account identities, which aren&rsquo;t
+        stored. The per-day average is a real number and is the one to quote.
+      </p>
+      <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+        Rates are against <strong>accounts reached</strong>, not followers. Reach here runs well
+        above the follower count because most of it is non-followers through Reels, so a rate
+        against followers would exceed 100% and mean nothing.
+      </p>
+    </Card>
+  );
+}
 
 export default async function SocialPage({
   searchParams,
@@ -30,14 +128,16 @@ export default async function SocialPage({
   const since = range.since;
   const until = range.until;
 
-  const [social, platforms, campaigns, landings, tagged, channelChurn] = await Promise.all([
-    getSocialSummary(since, until),
-    getSocialPlatformPerformance(since, until),
-    getPaidCampaignPerformance(since, until),
-    getSocialLandingPages(since, until, 12),
-    getTaggedCampaigns(since, until, 15),
-    getChurnCohorts("channel", { minSubscriptions: 5 }),
-  ]);
+  const [social, platforms, campaigns, landings, tagged, channelChurn, insights] =
+    await Promise.all([
+      getSocialSummary(since, until),
+      getSocialPlatformPerformance(since, until),
+      getPaidCampaignPerformance(since, until),
+      getSocialLandingPages(since, until, 12),
+      getTaggedCampaigns(since, until, 15),
+      getChurnCohorts("channel", { minSubscriptions: 5 }),
+      getSocialInsights("instagram", since, until),
+    ]);
 
   const socialChurn = channelChurn.filter((c) =>
     ["organic-social", "paid-meta", "social-unknown", "paid-tiktok"].includes(c.key),
@@ -74,14 +174,18 @@ export default async function SocialPage({
 
         {/* Say plainly what this page is and isn't, so the gap doesn't read as a bug. */}
         <div className="rounded-xl border border-blue-300 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
-          <strong>This is the commerce half of social, not the engagement half.</strong> Everything
-          here is derived from visits that reached the store, so it can answer &ldquo;which platform,
-          campaign and landing page produced revenue and subscribers who stayed&rdquo;. It cannot show{" "}
-          {SOCIAL_PLATFORM_METRICS_GAP.map((g) => g.toLowerCase()).join(", ")} — those live only in
-          the platforms&rsquo; own APIs and need an Instagram Graph / TikTok connector plus a working
-          token. Rather than render empty tiles for them, they&rsquo;re listed as a known gap. Tools
-          like Later or Sprout cover that half well; none of them can do this half.
+          <strong>This is the commerce half of social, plus account-level engagement.</strong>{" "}
+          Everything below the reach panel is derived from visits that reached the store, so it
+          answers &ldquo;which platform, campaign and landing page produced revenue and subscribers
+          who stayed&rdquo;. Instagram reach and engagement arrived 13 Aug 2026 and sit in the panel
+          below. Still missing:{" "}
+          {SOCIAL_PLATFORM_METRICS_GAP.map((g) => g.toLowerCase()).join(", ")} — per-post figures
+          need a media-by-media crawl, which is a different connector. Tools like Later or Sprout
+          cover that well; none of them can do the commerce half.
         </div>
+
+        {/* Organic reach — the half of social that was a documented gap until the connector. */}
+        <InsightsPanel insights={insights} />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Stat

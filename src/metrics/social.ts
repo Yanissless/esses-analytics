@@ -29,24 +29,34 @@ const num = (v: unknown): number => Number(v ?? 0);
  * What a social dashboard CANNOT show from this database, and why — surfaced in the
  * UI so the gap is explicit rather than looking like a bug or an empty chart.
  *
- * All of these are platform-side engagement metrics that never touch an order, so
- * they exist only in the platforms' own APIs:
- *   - follower count and growth
- *   - organic reach / impressions per post
- *   - engagement rate, saves, shares, comments
- *   - per-post and per-story breakdowns
+ * ## Closed on 13 Aug 2026 for Instagram, at the ACCOUNT level
  *
- * Getting them needs an Instagram Graph API connector (a Meta token with
- * `instagram_basic` + `pages_read_engagement`, against a Business/Creator account
- * linked to a Facebook Page) and equivalents per platform. Note the existing
- * `META_ACCESS_TOKEN` is currently dead ("API access blocked"), so even the paid
- * figures here are from the last successful sync.
+ * The four scopes were granted and `connectors/instagram` now stores follower counts
+ * (`social_audience`) and daily reach / views / profile views / engagement
+ * (`social_insights_daily`). Those two lines came off this list.
+ *
+ * What is still missing is **per-post and per-story** granularity, and the distinction is
+ * not pedantic: account-level reach tells you the audience is there, but not which post
+ * earned it. "Reach per post" needs a media-by-media crawl (`/{ig-id}/media` then insights
+ * per item), which is a different shape of connector — paginated over content rather than
+ * over dates — and a different cost, since it grows with how much you publish.
+ *
+ * Other platforms remain entirely absent; TikTok and YouTube each need their own connector.
  */
 export const SOCIAL_PLATFORM_METRICS_GAP = [
-  "Follower count and growth",
-  "Organic reach and impressions per post",
-  "Engagement rate, saves, shares, comments",
   "Per-post and per-story performance",
+  "Engagement and reach for platforms other than Instagram",
+] as const;
+
+/**
+ * What the Instagram connector now covers, so the page can state it rather than only
+ * listing absences. Kept next to the gap list because the two must stay consistent —
+ * a metric appearing in both is the bug this pairing makes obvious.
+ */
+export const SOCIAL_PLATFORM_METRICS_HAVE = [
+  "Follower count and growth (Instagram)",
+  "Daily reach, views and profile views (Instagram)",
+  "Accounts engaged and total interactions (Instagram)",
 ] as const;
 
 // ---------------------------------------------------------------------------

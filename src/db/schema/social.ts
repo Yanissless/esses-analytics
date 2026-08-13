@@ -13,10 +13,10 @@
  *    the history — and correlating follower growth against subscriber growth is exactly
  *    a question about history.
  *  - The four scopes needed (`instagram_basic`, `instagram_manage_insights`,
- *    `pages_show_list`, `pages_read_engagement`) are, as of 11 Aug 2026, all missing from
- *    the token, and the app can see 0 Pages. See `SOCIAL_PLATFORM_METRICS_GAP` in
- *    `metrics/social.ts`, which has listed "Follower count and growth" as the first
- *    missing metric since the social dashboard was built.
+ *    `pages_show_list`, `pages_read_engagement`) were granted 12 Aug 2026 and the connector
+ *    went live on 13 Aug. Everything dated before that is reconstructed or hand-entered and
+ *    says so in `source`. Because of the rolling window above, that distinction is
+ *    permanent — no later backfill can upgrade those days to observations.
  *
  * So the grain is a dated observation with a recorded **source**, and a manually entered
  * number is a first-class citizen rather than a stopgap. `source` exists so every chart
@@ -81,6 +81,64 @@ export const socialAudience = pgTable(
     uniqueIndex("social_audience_platform_day_idx").on(t.platform, t.capturedOn),
     index("social_audience_captured_on_idx").on(t.capturedOn),
     index("social_audience_source_idx").on(t.source),
+  ],
+);
+
+/**
+ * Daily organic performance per platform — reach, views, engagement.
+ *
+ * Separate from `socialAudience` because these answer a different question and behave
+ * differently. Follower count is a **level**: it exists on every date and carries over. Reach
+ * is a **flow**: it belongs to a day and summing two days double-counts anyone who saw you on
+ * both. Putting a flow in the same row as a level invites averaging the one and summing the
+ * other by accident.
+ *
+ * ## Read `reach` and `views` as different questions, not one number and a rounder version
+ *
+ *  - **reach** — distinct accounts. De-duplicated *within* the window Meta was asked for, so
+ *    28 days of reach is not the sum of 28 daily figures and will always be lower. The daily
+ *    rows here are each de-duplicated within their own day.
+ *  - **views** — total times content was seen, one account counted many times. Meta retired
+ *    `impressions` and this replaced it; it is not the same definition, so a figure quoted
+ *    from before the changeover is not comparable to one after it.
+ *
+ * Which means: never divide the two across different windows, and never present a 28-day
+ * reach next to a summed 28-day views as if they share a denominator.
+ *
+ * ## Nullable on purpose
+ *
+ * Every metric is nullable and null means "Meta did not give us this", never zero. Meta
+ * re-gates these individually — `profile_views` needs a business rather than creator account,
+ * `impressions` vanished outright — and a metric that silently became 0 would read as "nobody
+ * saw anything", which is a much worse lie than a blank.
+ */
+export const socialInsightsDaily = pgTable(
+  "social_insights_daily",
+  {
+    id: pk(),
+    /** Open set, same as `socialAudience.platform`. */
+    platform: text("platform").notNull(),
+    /** The day these figures describe. */
+    capturedOn: date("captured_on").notNull(),
+
+    /** Distinct accounts that saw any content. De-duplicated within the day. */
+    reach: integer("reach"),
+    /** Total content views. Meta's replacement for the retired `impressions`. */
+    views: integer("views"),
+    /** Profile page visits. */
+    profileViews: integer("profile_views"),
+    /** Distinct accounts that interacted at all. */
+    accountsEngaged: integer("accounts_engaged"),
+    /** Likes + comments + shares + saves. */
+    totalInteractions: integer("total_interactions"),
+
+    /** `meta_api` | `manual` | `csv`, same vocabulary as `socialAudience.source`. */
+    source: text("source").notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("social_insights_platform_day_idx").on(t.platform, t.capturedOn),
+    index("social_insights_captured_on_idx").on(t.capturedOn),
   ],
 );
 
