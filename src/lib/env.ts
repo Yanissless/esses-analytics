@@ -120,6 +120,11 @@ export const connectorConfigured = {
   skio: () => Boolean(env.SKIO_API_KEY),
   stripe: () => Boolean(env.STRIPE_SECRET_KEY),
   meta: () => Boolean(env.META_ACCESS_TOKEN && env.META_AD_ACCOUNT_ID),
+  /**
+   * Instagram organic needs only the token — it reaches the account through `/me/accounts`
+   * rather than an ad account, so it can run even when Meta ads is not configured.
+   */
+  instagram: () => Boolean(env.META_ACCESS_TOKEN),
   mailgun: () => Boolean(env.MAILGUN_API_KEY && env.MAILGUN_DOMAIN),
   slack: () => Boolean(env.SLACK_BOT_TOKEN),
   anthropic: () => Boolean(env.ANTHROPIC_API_KEY),

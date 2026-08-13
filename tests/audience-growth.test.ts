@@ -7,6 +7,7 @@ import {
   MIN_POINTS_FOR_R,
   pearson,
   periodGrowthRate,
+  reconstructTotals,
 } from "../src/metrics/audience-growth";
 
 /**
@@ -121,6 +122,39 @@ describe("lagProfile", () => {
     expect(best).toBeNull();
     expect(profile.every((p) => p.r === null)).toBe(true);
   });
+
+  /**
+   * The regression this pair of tests exists for: `best` selected on |r| and surfaced a
+   * strongly INVERSE lag as the page's headline "best lead time", which was then narrated as
+   * follower growth being a leading indicator. An inverse relationship is the opposite claim.
+   */
+  it("never reports an inverse lag as the best lead time", () => {
+    // Subscriber change is the NEGATIVE of follower change two steps earlier: strongly
+    // correlated, in the wrong direction. Nothing here supports "followers lead".
+    const followerDeltas = [5, 40, 12, 70, 8, 55, 30, 90, 18, 65, 25, 80, 14, 48, 36, 75];
+    const lead = 2;
+    const subscriberDeltas = [
+      ...range(lead).map(() => 1),
+      ...followerDeltas.slice(0, followerDeltas.length - lead).map((d) => -d / 5),
+    ];
+
+    const { best, strongestInverse } = lagProfile(followerDeltas, subscriberDeltas, 6);
+
+    // A positive lag may or may not exist in the noise, but it must never be the strong
+    // negative one, and it must never be reported with a negative r.
+    if (best) expect(best.r as number).toBeGreaterThan(0);
+    expect(strongestInverse).not.toBeNull();
+    expect(strongestInverse?.lag).toBe(lead);
+    expect(strongestInverse?.r as number).toBeLessThan(-0.9);
+  });
+
+  it("reports how many lags were searched, for the multiple-comparisons caveat", () => {
+    // Picking the largest of many correlations finds something convincing even in noise,
+    // so the count has to reach the page rather than being an internal detail.
+    const { lagsTested, profile } = lagProfile(range(30), range(30), 5);
+    expect(lagsTested).toBe(profile.filter((p) => p.r !== null).length);
+    expect(lagsTested).toBeGreaterThan(1);
+  });
 });
 
 describe("periodGrowthRate", () => {
@@ -179,6 +213,66 @@ describe("indexToBase", () => {
 
   it("skips a leading zero to find the first real base", () => {
     expect(indexToBase([0, 50, 100])).toEqual([0, 100, 200]);
+  });
+});
+
+describe("reconstructTotals", () => {
+  /**
+   * The only route to historical follower levels: Meta gives an exact total for *now* and
+   * new-follows-per-day for ~30 days, never a dated total. Getting the direction of this walk
+   * backwards would produce a plausible series that is wrong everywhere except the anchor.
+   */
+  it("walks deltas back from the anchor", () => {
+    // 3 new on the 11th, 1 on the 12th; total 100 on the 12th.
+    const out = reconstructTotals(
+      [
+        { date: "2026-08-10", delta: 2 },
+        { date: "2026-08-11", delta: 3 },
+        { date: "2026-08-12", delta: 1 },
+      ],
+      100,
+      "2026-08-12",
+    );
+    expect(out).toEqual([
+      { date: "2026-08-10", followers: 96 }, // 99 - 3
+      { date: "2026-08-11", followers: 99 }, // 100 - 1
+      { date: "2026-08-12", followers: 100 }, // the anchor
+    ]);
+  });
+
+  it("reproduces the total growth as the sum of the deltas after the first day", () => {
+    const deltas = [
+      { date: "2026-07-15", delta: 0 },
+      { date: "2026-07-16", delta: 4 },
+      { date: "2026-07-17", delta: 6 },
+    ];
+    const out = reconstructTotals(deltas, 43_300, "2026-07-17");
+    const growth = out[out.length - 1].followers - out[0].followers;
+    expect(growth).toBe(4 + 6);
+  });
+
+  it("ignores deltas dated after the anchor", () => {
+    // A delta for a day later than the known total says nothing about the past.
+    const out = reconstructTotals(
+      [
+        { date: "2026-08-11", delta: 5 },
+        { date: "2026-08-99", delta: 999 },
+      ],
+      100,
+      "2026-08-11",
+    );
+    expect(out).toEqual([{ date: "2026-08-11", followers: 100 }]);
+  });
+
+  it("returns just the anchor when there are no deltas", () => {
+    expect(reconstructTotals([], 43_300, "2026-08-12")).toEqual([
+      { date: "2026-08-12", followers: 43_300 },
+    ]);
+  });
+
+  it("keeps the anchor's own day when it is later than every delta", () => {
+    const out = reconstructTotals([{ date: "2026-08-10", delta: 2 }], 100, "2026-08-12");
+    expect(out[out.length - 1]).toEqual({ date: "2026-08-12", followers: 100 });
   });
 });
 

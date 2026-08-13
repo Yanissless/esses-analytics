@@ -18,6 +18,7 @@
     "sync": "tsx scripts/sync.ts",
     "import:csv": "tsx scripts/import-csv.ts",
     "import:social": "tsx scripts/import-social.ts",
+    "sync:instagram": "tsx scripts/sync-instagram.ts",
     "review": "tsx scripts/review-orders.ts",
     "seed:costs": "tsx scripts/seed-cost-model.ts",
     "import:shipping": "tsx scripts/import-shipping-report.ts",

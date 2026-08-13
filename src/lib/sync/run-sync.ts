@@ -16,10 +16,11 @@ import { shopifyConnector } from "../../connectors/shopify";
 import { skioConnector } from "../../connectors/skio";
 import { stripeConnector } from "../../connectors/stripe";
 import { AD_PLATFORMS, asConnector } from "../../connectors/ads";
+import { syncInstagramAudience } from "../../connectors/instagram/ingest";
 import { rebuildDailyMetrics } from "../../metrics/rollup";
 import type { Connector } from "../../connectors/types";
 
-export const ALL_SYNC_SOURCES = ["shopify", "skio", "stripe", "ads"] as const;
+export const ALL_SYNC_SOURCES = ["shopify", "skio", "stripe", "ads", "instagram"] as const;
 
 export interface SourceResult {
   source: string;
@@ -78,6 +79,40 @@ async function runIncremental(
 }
 
 /**
+ * Instagram audience, wrapped to match `runIncremental`'s contract.
+ *
+ * Not a `Connector`: there is no cursor to advance and nothing incremental about it — every
+ * run asks Meta for the same rolling 30-day window and writes what it gets. Forcing it into
+ * the Connector interface would have meant a meaningless `incrementalSync(cursor)` that
+ * ignores its argument.
+ */
+async function runInstagram(configured: boolean): Promise<SourceResult> {
+  if (!configured) {
+    logger.warn("instagram not configured — skipping");
+    return { source: "instagram", ok: true, rows: 0, skipped: true };
+  }
+  try {
+    const r = await withSyncRun("instagram", "incremental", async () => {
+      const s = await syncInstagramAudience();
+      const written = s.observedWritten + s.reconstructedWritten;
+      return {
+        source: "instagram" as const,
+        // rowsIn counts what Meta gave us; skipped days are read but deliberately not written.
+        rowsIn: written + s.skippedObserved,
+        rowsUpserted: written,
+        warnings: s.warnings,
+      };
+    });
+    logger.info("instagram sync done", { rows: r.rowsUpserted });
+    return { source: "instagram", ok: true, rows: r.rowsUpserted };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    logger.error("instagram sync failed — continuing with other sources", { error });
+    return { source: "instagram", ok: false, error };
+  }
+}
+
+/**
  * Sync the requested sources, then refresh the rollup.
  *
  * The rollup runs LAST and runs even when a source failed: partial-but-current beats
@@ -104,6 +139,19 @@ export async function runSync(
   for (const p of AD_PLATFORMS) {
     if (!sources.includes(p.platform) && !sources.includes("ads")) continue;
     results.push(await runIncremental(asConnector(p), p.isConfigured()));
+  }
+
+  /**
+   * Instagram organic is in the nightly run because missing a night costs data permanently.
+   *
+   * Meta serves `follower_count` over a rolling 30-day window and publishes no dated
+   * historical total at all, so a day that is never recorded can only ever be reconstructed
+   * from deltas — and once it falls out of that window it cannot be recovered by any means.
+   * Unlike Shopify or Stripe, where a missed night is caught up by the next cursor, this one
+   * is lossy. It runs last and its failure is contained like every other source.
+   */
+  if (sources.includes("instagram")) {
+    results.push(await runInstagram(connectorConfigured.instagram()));
   }
 
   let metricsDays: number | null = null;

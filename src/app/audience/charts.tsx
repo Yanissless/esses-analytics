@@ -478,12 +478,26 @@ export function AbsoluteSeriesChart({
  * indicator. Bars for lags that aren't measurable are drawn as an explicit gap rather
  * than as zero height, because rule 3: null is "not measurable", not "no relationship".
  */
-export function LagProfileChart({ profile }: { profile: LagResult[] }) {
+/**
+ * Bars are sized by |r| but the value is printed above every one, so the sign is readable
+ * without relying on the colour — an inverse lag and a positive lag of the same strength are
+ * the same height, and only the printed number and hue separate them.
+ *
+ * `unit` must match the grain the correlation actually ran at. It was hard-coded to "w" while
+ * the page fell back to a daily profile, which labelled 8 days as 8 weeks.
+ */
+export function LagProfileChart({
+  profile,
+  unit = "w",
+}: {
+  profile: LagResult[];
+  unit?: string;
+}) {
   const measurable = profile.filter((p) => p.r !== null);
   if (measurable.length === 0) {
     return (
       <p className="text-sm text-neutral-500 dark:text-neutral-400">
-        Not enough paired weeks to measure a lag yet.
+        Not enough paired observations to measure a lag yet.
       </p>
     );
   }
@@ -502,7 +516,7 @@ export function LagProfileChart({ profile }: { profile: LagResult[] }) {
               <div
                 className="w-full rounded border border-dashed border-neutral-300 dark:border-neutral-700"
                 style={{ height: 8 }}
-                title="not measurable — too few paired weeks at this lag"
+                title="not measurable — too few paired observations at this lag"
               />
             ) : (
               // 4px rounded data-end, anchored to the baseline.
@@ -512,10 +526,15 @@ export function LagProfileChart({ profile }: { profile: LagResult[] }) {
                   height: Math.max(h, 2),
                   background: (p.r as number) < 0 ? SUBSCRIBER.light : FOLLOWER.light,
                 }}
-                title={`lag ${p.lag} week(s): r = ${(p.r as number).toFixed(3)}`}
+                title={`lag ${p.lag}${unit}: r = ${(p.r as number).toFixed(3)}${
+                  (p.r as number) < 0 ? " (inverse)" : ""
+                }`}
               />
             )}
-            <span className="text-[10px] text-neutral-500 dark:text-neutral-400">{p.lag}w</span>
+            <span className="text-[10px] text-neutral-500 dark:text-neutral-400">
+              {p.lag}
+              {unit}
+            </span>
           </div>
         );
       })}

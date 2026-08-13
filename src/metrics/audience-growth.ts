@@ -127,10 +127,28 @@ export interface LagResult {
  *
  * `best` is null when no lag has enough overlapping points to be measurable, which is
  * the common case early on — each lag costs you one more paired observation.
+ *
+ * ## Why `best` selects on r and not |r|
+ *
+ * It selected on |r| once, and on real data that surfaced r = -0.59 at 8 days as the
+ * headline "best lead time" — which the page then narrated as follower growth being a
+ * leading indicator. It is the opposite: an inverse relationship says the weeks with the
+ * most new followers were followed by the *fewest* new subscribers. Selecting on magnitude
+ * finds the strongest relationship of any kind; the hypothesis under test is directional, so
+ * only a positive lag is evidence for it. The strongest inverse lag is returned separately
+ * rather than dropped, because it is worth seeing — just not under that headline.
+ *
+ * `lagsTested` is returned so the caller can caveat honestly: picking the largest r out of
+ * nine candidates on a short series will find something that looks convincing even in noise.
  */
 export function lagProfile(xs: number[], ys: number[], maxLag = 8): {
   profile: LagResult[];
+  /** Strongest POSITIVE correlation — the only kind that supports "followers lead". */
   best: LagResult | null;
+  /** Strongest negative correlation, if any. Reported, never used as the headline. */
+  strongestInverse: LagResult | null;
+  /** How many lags were searched, for the multiple-comparisons caveat. */
+  lagsTested: number;
 } {
   const profile: LagResult[] = [];
   for (let lag = 0; lag <= maxLag; lag++) {
@@ -140,11 +158,15 @@ export function lagProfile(xs: number[], ys: number[], maxLag = 8): {
     profile.push({ lag, r: pearson(x.slice(0, n), y.slice(0, n)) });
   }
   const measurable = profile.filter((p): p is LagResult & { r: number } => p.r !== null);
-  const best =
-    measurable.length === 0
-      ? null
-      : measurable.reduce((a, b) => (Math.abs(b.r) > Math.abs(a.r) ? b : a));
-  return { profile, best };
+  const positive = measurable.filter((p) => p.r > 0);
+  const negative = measurable.filter((p) => p.r < 0);
+  return {
+    profile,
+    best: positive.length === 0 ? null : positive.reduce((a, b) => (b.r > a.r ? b : a)),
+    strongestInverse:
+      negative.length === 0 ? null : negative.reduce((a, b) => (b.r < a.r ? b : a)),
+    lagsTested: measurable.length,
+  };
 }
 
 /**
@@ -179,6 +201,54 @@ export function indexToBase(series: Array<number | null>, base = 100): Array<num
   const firstReal = series.find((v): v is number => v !== null && v > 0);
   if (firstReal === undefined) return series.map(() => null);
   return series.map((v) => (v === null ? null : (v / firstReal) * base));
+}
+
+/**
+ * Turns daily new-follow counts plus one known total into a dated level series.
+ *
+ * The only way to get historical follower levels out of Meta: `followers_count` is the exact
+ * total right now with no dated version, and `follower_count` is new-follows-per-day over a
+ * rolling ~30 days. Walking the deltas back from the anchor is the reconstruction, and it is
+ * exact in shape — every step is a real observed delta — while the vertical offset inherits
+ * whatever precision the anchor has.
+ *
+ * Lives here, shared by `import:social` (anchor typed in by a human) and the Instagram
+ * connector (anchor read from the API), because two copies of this arithmetic would be two
+ * chances to get the direction of the walk backwards.
+ *
+ * `anchorDate` must be on or after the last delta. Deltas after it are ignored rather than
+ * applied — a delta for a day later than the known total tells you nothing about the past.
+ */
+export function reconstructTotals(
+  deltas: Array<{ date: string; delta: number }>,
+  anchorTotal: number,
+  anchorDate: string,
+): Array<{ date: string; followers: number }> {
+  const usable = deltas
+    .filter((d) => d.date <= anchorDate)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (usable.length === 0) return [{ date: anchorDate, followers: anchorTotal }];
+
+  const out = new Array<{ date: string; followers: number }>(usable.length);
+  // The last usable day carries the anchor; each earlier day is the next day's total minus
+  // the follows gained ON that next day.
+  out[usable.length - 1] = { date: usable[usable.length - 1].date, followers: anchorTotal };
+  for (let i = usable.length - 2; i >= 0; i--) {
+    out[i] = {
+      date: usable[i].date,
+      followers: out[i + 1].followers - usable[i + 1].delta,
+    };
+  }
+  // If the anchor is dated later than every delta, its own exact reading belongs in the
+  // series too rather than being attributed to the last delta's day.
+  if (anchorDate > usable[usable.length - 1].date) {
+    out[usable.length - 1] = {
+      date: usable[usable.length - 1].date,
+      followers: anchorTotal - 0,
+    };
+    out.push({ date: anchorDate, followers: anchorTotal });
+  }
+  return out;
 }
 
 /**
@@ -258,7 +328,8 @@ export interface AudienceGrowthAnalysis {
   deltaCorrelation: number | null;
   /** r on levels — reported only to be dismissed. Almost always ~0.9+ and meaningless. */
   levelCorrelation: number | null;
-  lag: { profile: LagResult[]; best: LagResult | null };
+  /** Derived from lagProfile — kept in sync by taking its return type rather than restating it. */
+  lag: ReturnType<typeof lagProfile>;
   followersPerNetSubscriber: number | null;
   /** Everything the reader needs in order to not over-read the numbers above. */
   caveats: string[];

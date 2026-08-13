@@ -19,6 +19,8 @@ export type ConnectorSource =
   | "skio"
   | "stripe"
   | "meta"
+  /** Instagram organic audience — distinct from "meta", which is paid ads. */
+  | "instagram"
   | "google_ads"
   | "mailgun"
   | "onsite";

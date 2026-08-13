@@ -49,6 +49,9 @@ export default async function AudiencePage() {
   const weeks = growth.points.map((p) => p.weekStart);
   const best = primary.lag.best;
   const unit = primary.grain === "day" ? "day" : "week";
+  // The lag axis is in whatever grain the correlation ran at. Hard-coding "w" labelled a
+  // daily profile as weeks — the same class of bug as "dayly", and just as invisible.
+  const unitAbbr = primary.grain === "day" ? "d" : "w";
   // "dayly" is not a word — don't build the adverb by suffixing the grain.
   const adverb = primary.grain === "day" ? "daily" : "weekly";
 
@@ -161,13 +164,17 @@ run.cmd import:social --platform=instagram --date=2026-08-11 --followers=18240`}
               />
               <Stat
                 label="Best lead time"
-                value={
-                  primary.lag.best ? `${primary.lag.best.lag}${primary.grain === "day" ? "d" : "w"}` : "—"
-                }
+                value={best ? `${best.lag}${unitAbbr}` : "none"}
                 hint={
-                  primary.lag.best
-                    ? `r ${primary.lag.best.r?.toFixed(2)} — follower change leading subscriber change`
-                    : "not measurable yet"
+                  best && best.lag > 0
+                    ? `r ${best.r?.toFixed(2)} — follower change leading subscriber change`
+                    : best
+                      // Lag 0 is not a lead time. Calling it one implies a direction the data
+                      // does not contain: the two simply move together within the same period.
+                      ? `r ${best.r?.toFixed(2)} — they move together, neither leads`
+                      : primary.lag.strongestInverse
+                        ? `no positive lag; strongest is inverse (r ${primary.lag.strongestInverse.r?.toFixed(2)} at ${primary.lag.strongestInverse.lag}${unitAbbr})`
+                        : "not measurable yet"
                 }
               />
             </div>
@@ -237,14 +244,23 @@ run.cmd import:social --platform=instagram --date=2026-08-11 --followers=18240`}
                 title="Does follower growth arrive first?"
                 subtitle={`Correlation of ${adverb} follower change against subscriber change, at each lag.`}
               >
-                <LagProfileChart profile={primary.lag.profile} />
+                <LagProfileChart profile={primary.lag.profile} unit={unitAbbr} />
                 <p className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">
                   {best && best.lag > 0
-                    ? `Strongest at ${best.lag} ${unit}(s), which would make follower growth a leading indicator worth watching.`
+                    ? `Strongest positive at ${best.lag} ${unit}(s), which would make follower growth a leading indicator worth watching.`
                     : best
-                      ? "Strongest at lag 0 — the two move in the same week, so followers look like a by-product of whatever drives subscriptions rather than a cause of them."
-                      : "Every lag costs a paired observation, so this needs more weeks of follower data than a plain correlation does."}
+                      ? `Strongest positive at lag 0 — the two move in the same ${unit}, so followers look like a by-product of whatever drives subscriptions rather than a cause of them.`
+                      : primary.lag.strongestInverse
+                        ? `No lag shows a positive relationship. The strongest is inverse (r ${primary.lag.strongestInverse.r?.toFixed(2)} at ${primary.lag.strongestInverse.lag} ${unit}s) — on this window the ${unit}s with the most new followers were followed by the fewest new subscribers, which is not evidence that followers lead.`
+                        : "Every lag costs a paired observation, so this needs more data than a plain correlation does."}
                 </p>
+                {primary.lag.lagsTested > 1 ? (
+                  <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
+                    {primary.lag.lagsTested} lags searched. Taking the largest of several
+                    correlations finds a convincing-looking one even in noise, so treat a single
+                    standout lag as a hypothesis to re-check next month rather than a finding.
+                  </p>
+                ) : null}
               </Card>
 
               <Card
