@@ -6,7 +6,7 @@
  * copy-paste-then-drift pattern this codebase has already been bitten by twice
  * (`revenue_class`, the rate-rule predicate).
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/client";
 import { syncRuns } from "../../db/schema";
 import { connectorConfigured } from "../env";
@@ -38,11 +38,35 @@ export interface SyncSummary {
   ms: number;
 }
 
+/**
+ * Statuses whose cursor can be trusted.
+ *
+ * **`partial` counts, and leaving it out was a real bug.** `finishSyncRun` marks a run partial
+ * whenever it carries any warning, and Shopify carries a permanent one: shipping label costs
+ * need the `read_reports` scope we do not have. Orders themselves sync perfectly. But with
+ * only `success` accepted, that one standing warning meant Shopify's cursor never advanced
+ * past 29 July 2026 — every subsequent sync re-fetched a fortnight of orders, and the window
+ * grew by a day every day.
+ *
+ * It was invisible because the data was RIGHT: re-fetching everything produces correct orders,
+ * just slowly. What it looked like was "sync is getting slower", plus a freshness display that
+ * would have reported Shopify as fifteen days stale while it was in fact current.
+ *
+ * A warning is not a failure. A partial run ingested its rows and recorded a real cursor; only
+ * a `failed` run has a cursor that cannot be trusted.
+ */
+const CURSOR_TRUSTED_STATUSES = ["success", "partial"] as const;
+
 async function lastCursor(source: string): Promise<string | undefined> {
   const [row] = await db
     .select({ cursor: syncRuns.cursor })
     .from(syncRuns)
-    .where(and(eq(syncRuns.source, source), eq(syncRuns.status, "success")))
+    .where(
+      and(
+        eq(syncRuns.source, source),
+        inArray(syncRuns.status, [...CURSOR_TRUSTED_STATUSES]),
+      ),
+    )
     .orderBy(desc(syncRuns.finishedAt))
     .limit(1);
   return row?.cursor ?? undefined;

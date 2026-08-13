@@ -109,3 +109,40 @@ describe("targetProgress and paceVariance", () => {
     expect(paceVariance(0, 1000, 0, 30)).toBeNull();
   });
 });
+
+/**
+ * Esses ships on the 15th, so a release straddles two months. Assigning the whole surge to the
+ * release month sets a target that month cannot hit and gives the next one a target it beats
+ * for free — which reads as alternating over- and under-performance that isn't real.
+ */
+describe("releaseWeights with a mid-month release day", () => {
+  it("splits a day-15 release across its month and the next", () => {
+    const r = releaseWeights([5], 0, 15);
+    // ~half in May, ~half in June, and nothing anywhere else.
+    expect(r.weights[4]).toBeCloseTo(16 / 30, 6);
+    expect(r.weights[5]).toBeCloseTo(14 / 30, 6);
+    expect(r.weights.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 10);
+    expect(r.weights[0]).toBeCloseTo(0, 10);
+  });
+
+  it("wraps December's spillover into January rather than discarding it", () => {
+    // Without the wrap the weights would sum to less than 1 and the annual target would
+    // silently lose the spillover.
+    const r = releaseWeights([12], 0, 15);
+    expect(r.weights[11]).toBeGreaterThan(0);
+    expect(r.weights[0]).toBeGreaterThan(0);
+    expect(r.weights.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 10);
+  });
+
+  it("keeps day 1 releases entirely in their own month", () => {
+    const r = releaseWeights([5], 0, 1);
+    expect(r.weights[4]).toBeCloseTo(1, 6);
+    expect(r.weights[5]).toBeCloseTo(0, 6);
+  });
+
+  it("still reconciles to the annual figure on the real Esses schedule", () => {
+    const w = releaseWeights([2, 5, 8, 11], 0.35, 15).weights;
+    const months = splitAnnualTarget(250_000_00, 2026, w);
+    expect(months.reduce((a, m) => a + m.target, 0)).toBe(250_000_00);
+  });
+});

@@ -119,6 +119,18 @@ export function monthlyWeights(
 export function releaseWeights(
   releaseMonths: number[],
   baselineShare = 0.35,
+  /**
+   * Day of the month releases land on. A mid-month release does NOT put its revenue in one
+   * month: Esses ships on the 15th, so roughly half the surge falls in the release month and
+   * half in the next. Assigning it all to the release month sets a target that month cannot
+   * hit and hands the following month a target it beats for free — the pattern looks like
+   * alternating over- and under-performance that isn't real.
+   *
+   * The split is proportional to the days remaining in the release month, which assumes the
+   * surge decays evenly over about a month. That is an assumption, not a measurement; with
+   * more history it should be replaced by the observed decay curve.
+   */
+  releaseDay = 1,
 ): MonthlyWeights {
   const valid = releaseMonths.filter((m) => m >= 1 && m <= 12);
   if (valid.length === 0) {
@@ -129,21 +141,30 @@ export function releaseWeights(
     };
   }
   const base = Math.min(Math.max(baselineShare, 0), 1);
+  const day = Math.min(Math.max(Math.round(releaseDay), 1), 28);
 
-  const counts = new Array(12).fill(0);
-  for (const m of valid) counts[m - 1] += 1;
-  const totalReleases = valid.length;
+  // Share of the surge landing in the release month itself. Day 1 → all of it; day 15 → ~half.
+  const inMonth = Math.min(Math.max((30 - day + 1) / 30, 0), 1);
 
-  const weights = counts.map(
-    (c) => base / 12 + (1 - base) * (c / totalReleases),
-  );
+  const surge = new Array(12).fill(0);
+  for (const m of valid) {
+    surge[m - 1] += inMonth;
+    // December's spillover lands in January, which is the same calendar-month bucket next
+    // year — for an annual shape that wraps rather than being discarded.
+    surge[m % 12] += 1 - inMonth;
+  }
+  const surgeTotal = surge.reduce((a, b) => a + b, 0);
+
+  const weights = surge.map((s) => base / 12 + (1 - base) * (s / surgeTotal));
   return {
     weights,
     method: "release",
     reason:
-      `${totalReleases} release(s) across ${counts.filter((c) => c > 0).length} month(s). ` +
-      `${Math.round(base * 100)}% of the year treated as baseline and spread evenly; the rest ` +
-      "follows the schedule.",
+      `${valid.length} release(s) on day ${day} of months ${valid.join(", ")}. ` +
+      `${Math.round(inMonth * 100)}% of each release's surge is placed in its own month and ` +
+      `${Math.round((1 - inMonth) * 100)}% in the following one, because a mid-month release ` +
+      `straddles two. ${Math.round(base * 100)}% of the year is treated as baseline renewals ` +
+      "and spread evenly.",
   };
 }
 

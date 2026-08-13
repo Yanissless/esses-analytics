@@ -18,6 +18,8 @@ import { resolvePageRange } from "@/lib/date-range.server";
 import { Badge, Card, DeltaBadge, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
+import { FreshnessBanner } from "../_components/freshness-banner";
+import { getSourceFreshness } from "@/lib/freshness.server";
 
 export const dynamic = "force-dynamic";
 
@@ -69,12 +71,13 @@ export default async function MarketingPage({
   const since = range.since;
   const until = range.until;
 
-  const [period, channels, coverage, reconciliation, trend] = await Promise.all([
+  const [period, channels, coverage, reconciliation, trend, freshness] = await Promise.all([
     getPeriodMetrics(since, until),
     getChannelPerformance(since, until, model, 7, basis),
     getAttributionCoverage(since, until),
     getPlatformReconciliation(since, until, model, basis),
     getPlatformTrend(since, until, "meta"),
+    getSourceFreshness(),
   ]);
 
   // Only the blended headline is compared. Fetching a second copy of the channel tables and
@@ -142,6 +145,10 @@ export default async function MarketingPage({
           lagDays={bounds.lagDays}
           comparisonUnavailable={comparison === null}
         />
+
+        {/* Every ratio below divides by spend, so a partial spend day flatters all of them.
+            This is the page where saying so matters most. */}
+        <FreshnessBanner freshness={freshness} sources={["meta", "shopify"]} />
 
         {/* ---- blended: needs no attribution, so it's the trustworthy headline ---- */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

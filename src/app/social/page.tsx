@@ -13,6 +13,8 @@ import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
 import { resolvePageRange } from "@/lib/date-range.server";
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
+import { FreshnessBanner } from "../_components/freshness-banner";
+import { getSourceFreshness } from "@/lib/freshness.server";
 import { ReachSparkline } from "./reach-chart";
 
 export const dynamic = "force-dynamic";
@@ -128,7 +130,7 @@ export default async function SocialPage({
   const since = range.since;
   const until = range.until;
 
-  const [social, platforms, campaigns, landings, tagged, channelChurn, insights] =
+  const [social, platforms, campaigns, landings, tagged, channelChurn, insights, freshness] =
     await Promise.all([
       getSocialSummary(since, until),
       getSocialPlatformPerformance(since, until),
@@ -137,6 +139,7 @@ export default async function SocialPage({
       getTaggedCampaigns(since, until, 15),
       getChurnCohorts("channel", { minSubscriptions: 5 }),
       getSocialInsights("instagram", since, until),
+      getSourceFreshness(),
     ]);
 
   const socialChurn = channelChurn.filter((c) =>
@@ -171,6 +174,8 @@ export default async function SocialPage({
           lagDays={bounds.lagDays}
           comparisonUnavailable={comparison === null}
         />
+
+        <FreshnessBanner freshness={freshness} sources={["meta", "instagram", "shopify"]} />
 
         {/* Say plainly what this page is and isn't, so the gap doesn't read as a bug. */}
         <div className="rounded-xl border border-blue-300 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">

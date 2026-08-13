@@ -11,6 +11,8 @@ import {
 import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
+import { FreshnessBanner } from "../_components/freshness-banner";
+import { getSourceFreshness } from "@/lib/freshness.server";
 import { CreativeStrip, CreativeThumb } from "./thumbnail";
 
 export const dynamic = "force-dynamic";
@@ -84,10 +86,11 @@ export default async function CreativesPage({
   const params = await searchParams;
   const { range, compareMode, comparison, bounds } = await resolvePageRange(params);
 
-  const [campaigns, coverage, mediaById] = await Promise.all([
+  const [campaigns, coverage, mediaById, freshness] = await Promise.all([
     getCampaignPerformance(range.since, range.until),
     getCreativeCoverage(range.since, range.until),
     getCreativeMedia(),
+    getSourceFreshness(),
   ]);
 
   const taggedSpendShare =
@@ -114,6 +117,8 @@ export default async function CreativesPage({
           lagDays={bounds.lagDays}
           comparisonUnavailable={comparison === null}
         />
+
+        <FreshnessBanner freshness={freshness} sources={["meta", "shopify"]} />
 
         {/* Coverage leads, because a ranking over 11% of creatives presented as "what's
             working" is the confident-and-wrong artefact this app exists to avoid. */}

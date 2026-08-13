@@ -1,7 +1,7 @@
 /**
  * Set an annual target and split it into monthly goals.
  *
- *   pnpm set:goals --metric=revenue --annual=250000 --year=2026 --releases=3,6,9,12
+ *   pnpm set:goals --metric=revenue --annual=250000 --year=2026 --releases=2,5,8,11 --release-day=15
  *   pnpm set:goals --metric=orders  --annual=14000  --year=2026 --flat
  *   pnpm set:goals --list
  *   pnpm set:goals --metric=revenue --year=2026 --clear
@@ -104,6 +104,7 @@ async function main() {
     weights = releaseWeights(
       releases.split(",").map((s) => Number(s.trim())).filter(Number.isFinite),
       Number(arg("baseline") ?? 0.35),
+      Number(arg("release-day") ?? 1),
     );
   } else if (flag("seasonal")) {
     // One row per observed calendar month. The planner decides whether that is enough.
