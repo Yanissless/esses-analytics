@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { requireCapability } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/capabilities";
-import { getRevenueSummary } from "@/metrics/overview";
 import { getPeriodMetrics } from "@/metrics/rollup";
 import { breakevenMer, ratio } from "@/metrics/formulas";
 import type { AttributionModel } from "@/attribution/models";
@@ -14,8 +13,11 @@ import {
   getPlatformReconciliation,
   getPlatformTrend,
 } from "@/attribution/reconciliation";
-import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
+import { delta } from "@/lib/date-range";
+import { resolvePageRange } from "@/lib/date-range.server";
+import { Badge, Card, DeltaBadge, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
+import { DateRangePicker } from "../_components/date-range-picker";
 
 export const dynamic = "force-dynamic";
 
@@ -48,19 +50,24 @@ const isPaid = (channel: string) => channel.startsWith("paid-");
 export default async function MarketingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ model?: string; basis?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await requireCapability("marketing");
   const params = await searchParams;
-  const model: AttributionModel = isModel(params.model) ? params.model : "last-non-direct";
-  const basis: AttributionBasis = isBasis(params.basis) ? params.basis : "session-only";
+  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  const rawModel = one(params.model);
+  const rawBasis = one(params.basis);
+  const model: AttributionModel = isModel(rawModel) ? rawModel : "last-non-direct";
+  const basis: AttributionBasis = isBasis(rawBasis) ? rawBasis : "session-only";
 
   // The marketing role reaches this page but must not see cost/margin figures.
   const showMargin = can(user.role, "margin");
 
-  const summary = await getRevenueSummary();
-  const since = summary.firstOrderDate ?? "2025-10-01";
-  const until = summary.lastOrderDate ?? new Date().toISOString().slice(0, 10);
+  // Range comes from the URL and is anchored to the last day with DATA, not today — see
+  // lib/date-range.ts for why that distinction is load-bearing.
+  const { range, comparison, compareMode, bounds } = await resolvePageRange(params);
+  const since = range.since;
+  const until = range.until;
 
   const [period, channels, coverage, reconciliation, trend] = await Promise.all([
     getPeriodMetrics(since, until),
@@ -69,6 +76,13 @@ export default async function MarketingPage({
     getPlatformReconciliation(since, until, model, basis),
     getPlatformTrend(since, until, "meta"),
   ]);
+
+  // Only the blended headline is compared. Fetching a second copy of the channel tables and
+  // the reconciliation would double the query load for a row of arrows nobody asked for,
+  // and a per-channel delta over a short window is mostly attribution noise.
+  const priorPeriod = comparison ? await getPeriodMetrics(comparison.since, comparison.until) : null;
+  const d = (cur: number | null, prev: number | null) =>
+    priorPeriod && cur != null && prev != null ? delta(cur, prev) : null;
 
   /*
    * Breakeven MER has to use the SAME revenue base as MER itself, or the
@@ -90,11 +104,18 @@ export default async function MarketingPage({
   const maxRevenue = Math.max(...channels.map((c) => c.attributedRevenueCents), 1);
   const maxTrendConv = Math.max(...trend.map((t) => t.platformConversions), 1);
 
+  // Model/basis links must carry the range forward, or switching attribution model silently
+  // resets the window to the default and the numbers move for two reasons at once.
   const href = (next: { model?: AttributionModel; basis?: AttributionBasis }) => {
-    const q = new URLSearchParams({
-      model: next.model ?? model,
-      basis: next.basis ?? basis,
-    });
+    const q = new URLSearchParams();
+    q.set("model", next.model ?? model);
+    q.set("basis", next.basis ?? basis);
+    q.set("range", range.preset);
+    q.set("compare", compareMode);
+    if (range.preset === "custom") {
+      q.set("since", range.since);
+      q.set("until", range.until);
+    }
     return `/marketing?${q.toString()}`;
   };
 
@@ -106,27 +127,65 @@ export default async function MarketingPage({
           <h1 className="text-xl font-semibold tracking-tight">Marketing</h1>
           <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
             Blended efficiency, channel performance, and what the ad platforms claim versus what we
-            can corroborate · {since} → {until}
+            can corroborate · {range.label}
+            {range.clippedToDataStart ? " (clipped — data starts later than the range asked for)" : ""}
           </p>
         </div>
 
+        <DateRangePicker
+          preset={range.preset}
+          compareMode={compareMode}
+          since={range.since}
+          until={range.until}
+          anchor={bounds.anchor}
+          dataStart={bounds.start}
+          lagDays={bounds.lagDays}
+          comparisonUnavailable={comparison === null}
+        />
+
         {/* ---- blended: needs no attribution, so it's the trustworthy headline ---- */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Polarity is declared per metric: MER up is good, CAC up is not. A comparison UI
+              that paints every rise green teaches people to read CAC backwards. */}
           <Stat
             label="MER (blended)"
             value={x(period.mer)}
             hint={`${formatUsd(period.revenueCents, { compact: true })} revenue ÷ ${formatUsd(period.adSpendCents, { compact: true })} spend`}
             emphasis
+            trailing={
+              <DeltaBadge
+                delta={d(period.mer, priorPeriod?.mer ?? null)}
+                polarity="higher-is-better"
+                format={(n) => `${n.toFixed(2)}×`}
+                compareLabel={comparison?.label}
+              />
+            }
           />
           <Stat
             label="aMER (new customers)"
             value={x(period.amer)}
             hint={`${formatUsd(period.newCustomerRevenueCents, { compact: true })} from new customers`}
+            trailing={
+              <DeltaBadge
+                delta={d(period.amer, priorPeriod?.amer ?? null)}
+                polarity="higher-is-better"
+                format={(n) => `${n.toFixed(2)}×`}
+                compareLabel={comparison?.label}
+              />
+            }
           />
           <Stat
             label="Blended CAC"
             value={money(period.cac)}
             hint={`${formatNum(period.newCustomers)} new customers`}
+            trailing={
+              <DeltaBadge
+                delta={d(period.cac, priorPeriod?.cac ?? null)}
+                polarity="lower-is-better"
+                format={(n) => formatUsd(n)}
+                compareLabel={comparison?.label}
+              />
+            }
           />
           {/* Breakeven MER is derived from CM2, and its hint states the margin % outright,
               so it's withheld from roles without margin access. MER/aMER/CAC above are
