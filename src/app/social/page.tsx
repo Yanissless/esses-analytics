@@ -9,7 +9,7 @@ import {
   SOCIAL_PLATFORM_METRICS_GAP,
 } from "@/metrics/social";
 import { getSocialInsights, type SocialInsightsSummary } from "@/metrics/social-insights";
-import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
+import { Badge, Card, Caveat, Stat, formatNum, formatUsd } from "../_components/ui";
 import { resolvePageRange } from "@/lib/date-range.server";
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
@@ -101,20 +101,21 @@ function InsightsPanel({ insights: i }: { insights: SocialInsightsSummary }) {
         />
       </div>
 
-      <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
-        <strong>Why there is no single &ldquo;reach for this range&rdquo; figure.</strong> Reach
-        counts distinct accounts, so it cannot be added up: someone who saw you on ten days is one
-        account, not ten. The summed figure above is what you get by adding the daily rows, and it
-        is an upper bound you would only reach if no account ever saw you twice — for this account
-        it runs roughly 50% above the truth. A genuine de-duplicated total has to be asked of Meta
-        for that exact window, because de-duplicating needs the account identities, which aren&rsquo;t
-        stored. The per-day average is a real number and is the one to quote.
-      </p>
-      <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-        Rates are against <strong>accounts reached</strong>, not followers. Reach here runs well
-        above the follower count because most of it is non-followers through Reels, so a rate
-        against followers would exceed 100% and mean nothing.
-      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <Caveat summary="Reach cannot be summed">
+          Reach counts distinct accounts, so someone who saw you on ten days is one account, not
+          ten. The &ldquo;reach, summed&rdquo; figure is what you get by adding the daily rows —
+          an upper bound you would only hit if no account ever saw you twice, and for this account
+          it runs roughly 50% above the truth. A genuine de-duplicated total has to be asked of
+          Meta for that exact window, because de-duplicating needs the account identities, which
+          aren&rsquo;t stored. <strong>Quote the per-day average.</strong>
+        </Caveat>
+
+        <Caveat summary="Rates are against accounts reached, not followers">
+          Reach here runs well above the follower count because most of it is non-followers
+          through Reels, so a rate against followers would exceed 100% and mean nothing.
+        </Caveat>
+      </div>
     </Card>
   );
 }
@@ -177,16 +178,21 @@ export default async function SocialPage({
 
         <FreshnessBanner freshness={freshness} sources={["meta", "instagram", "shopify"]} />
 
-        {/* Say plainly what this page is and isn't, so the gap doesn't read as a bug. */}
-        <div className="rounded-xl border border-blue-300 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
-          <strong>This is the commerce half of social, plus account-level engagement.</strong>{" "}
-          Everything below the reach panel is derived from visits that reached the store, so it
-          answers &ldquo;which platform, campaign and landing page produced revenue and subscribers
-          who stayed&rdquo;. Instagram reach and engagement arrived 13 Aug 2026 and sit in the panel
-          below. Still missing:{" "}
-          {SOCIAL_PLATFORM_METRICS_GAP.map((g) => g.toLowerCase()).join(", ")} — per-post figures
-          need a media-by-media crawl, which is a different connector. Tools like Later or Sprout
-          cover that well; none of them can do the commerce half.
+        {/* Was a full-width blue banner of five lines of prose. The scope note still matters —
+            a reader who thinks this page covers per-post performance will conclude the data is
+            missing rather than out of scope — but it does not need to shout. */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <Caveat summary="Commerce half of social, plus account-level engagement">
+            Everything below the reach panel comes from visits that reached the store, so it
+            answers which platform, campaign and landing page produced revenue and subscribers who
+            stayed. Instagram reach and engagement arrived 13 Aug 2026.
+          </Caveat>
+
+          <Caveat summary={`Not covered: ${SOCIAL_PLATFORM_METRICS_GAP.map((g) => g.toLowerCase()).join(", ")}`}>
+            Per-post figures need a media-by-media crawl — a different shape of connector,
+            paginated over content rather than dates, whose cost grows with how much you publish.
+            Tools like Later or Sprout cover that well; none of them can do the commerce half.
+          </Caveat>
         </div>
 
         {/* Organic reach — the half of social that was a documented gap until the connector. */}

@@ -8,7 +8,7 @@ import {
   type CampaignRow,
   type CreativeRow,
 } from "@/attribution/creatives";
-import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
+import { Badge, Card, Caveat, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
 import { FreshnessBanner } from "../_components/freshness-banner";
@@ -234,57 +234,52 @@ export default async function CreativesPage({
           />
         </div>
 
-        <Card
-          title="How this table is built, and what it cannot tell you"
-          subtitle="Read this before switching a creative off."
-        >
-          <ul className="space-y-2 text-xs text-neutral-600 dark:text-neutral-400">
-            <li>
-              <strong className="text-neutral-800 dark:text-neutral-200">
-                Tagged clicks carry Meta&apos;s own IDs.
-              </strong>{" "}
-              <code className="font-mono">utm_campaign</code> holds the campaign ID and{" "}
-              <code className="font-mono">utm_content</code> the ad ID, which join straight onto
-              the spend rows — so no name matching is involved and a creative&apos;s spend and
-              its provable revenue are genuinely the same creative.
-            </li>
-            <li>
-              <strong className="text-neutral-800 dark:text-neutral-200">
-                Untagged creatives look like they earned nothing.
-              </strong>{" "}
-              {coverage.creativesTotal - coverage.creativesTagged} of{" "}
-              {coverage.creativesTotal} creatives have no tagged converting click, so they show
-              &ldquo;no tagged orders&rdquo; — which means unmeasured, not unsuccessful. Only
-              compare a creative against another creative that is also tagged.
-            </li>
-            <li>
-              <strong className="text-neutral-800 dark:text-neutral-200">
-                Revenue is assigned to one creative per order.
-              </strong>{" "}
-              The last tagged paid-meta touch before the order takes it. Splitting fractional
-              revenue across creatives would make a per-creative ROAS that reconciles against
-              nothing; counting it under every touch would inflate the column past real revenue.
-            </li>
-            <li>
-              <strong className="text-neutral-800 dark:text-neutral-200">
-                Meta&apos;s ROAS and ours are never blended.
-              </strong>{" "}
-              The gap between the columns is the useful part. Meta counts view-through and
-              cross-device conversions we cannot observe; ours counts only what a session proves.
-            </li>
-            {coverage.unmatchedAdIds.length > 0 ? (
-              <li>
-                <strong className="text-neutral-800 dark:text-neutral-200">
-                  {coverage.unmatchedAdIds.length} tagged ad ID(s) have no spend row in this
-                  range.
-                </strong>{" "}
-                Traffic arrived from a creative whose spend sits outside the window (or whose ad
-                was deleted), so its revenue appears under no line here. Listed rather than
-                silently dropped.
-              </li>
-            ) : null}
-          </ul>
-        </Card>
+        {/* Was a full Card of four prose paragraphs sitting above the numbers it hedged.
+            The caveats are not optional — a per-creative ROAS read without knowing 50 of 51
+            creatives are untagged is worse than no number — but they do not need to occupy a
+            third of the page. One line each, detail behind the `i`. */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <Caveat
+            summary={`${coverage.creativesTotal - coverage.creativesTagged} of ${coverage.creativesTotal} creatives are untagged`}
+            tone="warn"
+          >
+            They show &ldquo;no tagged orders&rdquo;, which means{" "}
+            <strong>unmeasured, not unsuccessful</strong>. Only compare a tagged creative against
+            another tagged creative. Fixing this needs esses.com to forward UTM parameters into
+            the order — see <code className="font-mono">docs/esses-com-attribution.md</code>.
+          </Caveat>
+
+          <Caveat summary="Meta's numbers and ours are never blended">
+            Meta counts view-through and cross-device conversions we cannot observe; ours counts
+            only what a session proves. The gap between the two columns is the useful part, so
+            they are shown side by side rather than reconciled into one figure.
+          </Caveat>
+
+          <Caveat summary="One creative per order">
+            Revenue goes to the last tagged paid-Meta touch before the order. Splitting it
+            fractionally across creatives would produce a per-creative ROAS that reconciles
+            against nothing; counting it under every touch would inflate the column past real
+            revenue.
+          </Caveat>
+
+          <Caveat summary="Joined on Meta's own IDs, not names">
+            <code className="font-mono">utm_campaign</code> carries the campaign ID and{" "}
+            <code className="font-mono">utm_content</code> the ad ID, which join straight onto the
+            spend rows. No name matching is involved, so a creative&apos;s spend and its provable
+            revenue are genuinely the same creative.
+          </Caveat>
+
+          {coverage.unmatchedAdIds.length > 0 ? (
+            <Caveat
+              summary={`${coverage.unmatchedAdIds.length} tagged ad ID(s) have no spend row here`}
+              tone="warn"
+            >
+              Traffic arrived from a creative whose spend sits outside this date range, or whose
+              ad has since been deleted. Its revenue therefore appears under no line in the table
+              below. Listed rather than silently dropped.
+            </Caveat>
+          ) : null}
+        </div>
 
         {/* Campaigns are a stack of <details> cards, NOT a table.
 

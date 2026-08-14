@@ -2,34 +2,27 @@
 REM ===========================================================================
 REM  Double-click this file to refresh all the data in Esses Analytics.
 REM
-REM  Runs the two steps that must ALWAYS happen together:
-REM    1. sync    - pull new orders, subscriptions, payments, ad spend, Instagram
-REM    2. metrics - recompute profit and the daily rollup from what just arrived
+REM  ## Why this does NOT call run.cmd
 REM
-REM  Skipping step 2 leaves the dashboards showing yesterday's numbers over
-REM  today's data, which is worse than not syncing at all because it looks fine.
+REM  It used to, and it failed on Sam's machine with only "The system cannot
+REM  find the path specified" and no pnpm output at all - meaning run.cmd died
+REM  before reaching pnpm. It could never be reproduced from a terminal, so
+REM  rather than keep guessing at a layer I cannot observe, this file now does
+REM  the work itself: set PATH, then invoke pnpm directly.
 REM
-REM  ## This file MUST be saved as ASCII with CRLF line endings
+REM  Every path is printed and checked BEFORE it is used, so the next failure
+REM  names the thing that is missing instead of producing one cryptic line.
 REM
-REM  The first version was written with LF endings and em dashes in these
-REM  comments. cmd.exe requires CRLF, so with LF it mis-parsed the file and
-REM  began EXECUTING fragments of the comment text - which surfaced to Sam as a
-REM  bare "The system cannot find the path specified" with no clue as to which
-REM  path. The em dashes also rendered as "GCo" mojibake in the console, which
-REM  was the visible tell. Neither reproduced from a terminal, because the
-REM  shells I was testing through normalised both.
+REM  There is deliberately no `chcp` call. Changing the console codepage part
+REM  way through a batch file can make cmd.exe lose its position in the script,
+REM  because it re-reads the file by byte offset. Mojibake in the output is
+REM  cosmetic; a launcher that does not run is not.
 REM
-REM  So: no characters outside plain ASCII in this file, ever, and CRLF endings.
-REM
-REM  pushd rather than cd /d: it copes with a UNC or mapped-drive working
-REM  directory, which Explorer can hand a batch file and cd /d cannot enter.
+REM  ASCII only, CRLF endings. No em dashes, no smart quotes, ever.
 REM ===========================================================================
 
-REM UTF-8 console: script output contains em dashes and accented country names,
-REM which render as mojibake (GCo) in the default codepage. Sam is told to read
-REM this window, so what it prints has to be legible.
-chcp 65001 >nul
 title Esses Analytics - updating data
+
 echo.
 echo  ===========================================
 echo   ESSES ANALYTICS - UPDATING DATA
@@ -37,32 +30,36 @@ echo  ===========================================
 echo.
 
 set "HERE=%~dp0"
-echo  Folder: %HERE%
+set "NODE_EXE=C:\Program Files\nodejs\node.exe"
+set "PNPM_CMD=%APPDATA%\npm\pnpm.cmd"
 
-pushd "%HERE%" 2>nul
-if errorlevel 1 (
-  echo.
-  echo  PROBLEM: could not enter that folder.
-  echo  If the path above starts with two backslashes it is a network
-  echo  location, which needs mapping to a drive letter first.
-  goto failed
-)
-
-if not exist "%HERE%run.cmd" (
-  echo.
-  echo  PROBLEM: run.cmd is not in that folder.
-  echo  Keep this file in the esses-analytics folder next to run.cmd.
-  echo  A Desktop SHORTCUT is fine. A COPY is not.
-  goto failed
-)
+echo  Project folder : %HERE%
+echo  Node           : %NODE_EXE%
+echo  pnpm           : %PNPM_CMD%
+echo.
 
 if not exist "%HERE%package.json" (
-  echo.
-  echo  PROBLEM: package.json is missing, so this is not the project folder.
+  echo  PROBLEM: package.json not found in the folder above.
+  echo  Keep this file inside the esses-analytics folder. A Desktop
+  echo  SHORTCUT is fine, a COPY somewhere else is not.
   goto failed
 )
 
-echo  Found run.cmd and package.json. Starting.
+if not exist "%NODE_EXE%" (
+  echo  PROBLEM: Node.js is not installed at the path above.
+  echo  Reinstall Node.js from nodejs.org, then try again.
+  goto failed
+)
+
+if not exist "%PNPM_CMD%" (
+  echo  PROBLEM: pnpm is not installed at the path above.
+  echo  Open PowerShell and run:  npm install -g pnpm
+  goto failed
+)
+
+set "PATH=C:\Program Files\nodejs;%APPDATA%\npm;%PATH%"
+
+echo  All three found. Starting.
 echo.
 echo  This takes about 5-10 minutes. You can minimise this
 echo  window, but do not close it.
@@ -72,8 +69,18 @@ echo   Step 1 of 2: pulling new data
 echo  -------------------------------------------
 echo.
 
-call "%HERE%run.cmd" sync
-if errorlevel 1 goto failed
+cd /d "%HERE%"
+if errorlevel 1 (
+  echo  PROBLEM: could not enter the project folder.
+  goto failed
+)
+
+call "%PNPM_CMD%" sync
+if errorlevel 1 (
+  echo.
+  echo  The data pull reported a problem. Scroll up for the reason.
+  goto failed
+)
 
 echo.
 echo  -------------------------------------------
@@ -81,30 +88,31 @@ echo   Step 2 of 2: recomputing profit and metrics
 echo  -------------------------------------------
 echo.
 
-call "%HERE%run.cmd" metrics
-if errorlevel 1 goto failed
+call "%PNPM_CMD%" metrics
+if errorlevel 1 (
+  echo.
+  echo  The metrics rebuild reported a problem. Scroll up for the reason.
+  goto failed
+)
 
-popd
 echo.
 echo  ===========================================
 echo   DONE - everything is up to date.
 echo  ===========================================
 echo.
-echo  Refresh the dashboard in your browser to see
-echo  the new numbers.
+echo  Refresh the dashboard in your browser.
 echo.
 pause
 exit /b 0
 
 :failed
-popd 2>nul
 echo.
 echo  ===========================================
 echo   SOMETHING WENT WRONG
 echo  ===========================================
 echo.
-echo  Send Claude everything in this window, including
-echo  the "Folder:" line near the top.
+echo  Send Claude this whole window, including the
+echo  three paths listed near the top.
 echo.
 echo  Your existing data has NOT been damaged. A failed
 echo  sync leaves what was already there untouched.

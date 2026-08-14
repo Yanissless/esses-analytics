@@ -75,27 +75,128 @@ export function DeltaBadge({
   );
 }
 
+/**
+ * A small `i` that reveals an explanation on hover or focus.
+ *
+ * ## Why this exists
+ *
+ * Every number in this app needs a caveat — which margin boundary, what the denominator is,
+ * which population is being compared, how much of the data attribution can actually see. The
+ * first version of every page printed those caveats as prose, and the result was pages where
+ * three paragraphs of hedging sat above the figures they were hedging. Sam's read: "too
+ * cluttered and not as clean looking as StoreHero". Correct.
+ *
+ * The caveats are not optional — a margin quoted without its boundary is the thing this
+ * codebase exists to prevent — so they cannot simply be deleted. They move here instead:
+ * present, one click or hover away, and out of the way until wanted.
+ *
+ * ## Keyboard and screen readers
+ *
+ * The trigger is a real `<button>`, so `group-focus-within` reveals the panel on tab as well
+ * as hover. A hover-only CSS tooltip is unreachable by keyboard, and `display:none` would
+ * take the content out of the accessibility tree entirely — hence visibility plus opacity,
+ * which animates and still hides from assistive tech when closed.
+ *
+ * `pointer-events-none` on the panel matters: without it the panel can sit under the cursor
+ * on its way elsewhere and flicker the hover state on and off.
+ */
+export function InfoTip({
+  children,
+  label = "More information",
+  align = "left",
+  width = "20rem",
+}: {
+  children: ReactNode;
+  label?: string;
+  /** Which edge the panel is anchored to. Use `right` near the right edge of a container. */
+  align?: "left" | "right";
+  width?: string;
+}) {
+  return (
+    <span className="group relative inline-flex align-middle">
+      <button
+        type="button"
+        aria-label={label}
+        className="flex h-4 w-4 items-center justify-center rounded-full border border-neutral-300 text-[10px] font-medium leading-none text-neutral-500 transition hover:border-neutral-500 hover:text-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:border-neutral-600 dark:text-neutral-400 dark:hover:border-neutral-400 dark:hover:text-neutral-100"
+      >
+        i
+      </button>
+      <span
+        role="tooltip"
+        style={{ width }}
+        className={`pointer-events-none invisible absolute top-6 z-30 rounded-lg border border-neutral-200 bg-white p-3 text-xs font-normal leading-relaxed text-neutral-600 opacity-0 shadow-lg transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 ${
+          align === "right" ? "right-0" : "left-0"
+        }`}
+      >
+        {children}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * A caveat line: one short sentence, with the detail behind an `InfoTip`.
+ *
+ * The summary has to stand alone. Someone who never hovers should still come away with the
+ * right impression — so the summary carries the warning and the tip carries the reasoning,
+ * rather than the summary being a teaser that means nothing without the tip.
+ */
+export function Caveat({
+  summary,
+  children,
+  tone = "neutral",
+}: {
+  summary: string;
+  children?: ReactNode;
+  tone?: "neutral" | "warn";
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 text-xs ${
+        tone === "warn"
+          ? "text-amber-700 dark:text-amber-400"
+          : "text-neutral-500 dark:text-neutral-400"
+      }`}
+    >
+      {summary}
+      {children ? <InfoTip>{children}</InfoTip> : null}
+    </span>
+  );
+}
+
 export function Card({
   title,
   subtitle,
   children,
   className = "",
+  /** Detail behind an InfoTip on the header, for context that used to be a prose block. */
+  info,
+  /** Right-aligned header slot — a filter, a count, a status pill. */
+  action,
 }: {
   title?: string;
   subtitle?: string;
   children: ReactNode;
   className?: string;
+  info?: ReactNode;
+  action?: ReactNode;
 }) {
   return (
     <section
       className={`rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900 ${className}`}
     >
       {title ? (
-        <header className="mb-4">
-          <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{title}</h2>
-          {subtitle ? (
-            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{subtitle}</p>
-          ) : null}
+        <header className="mb-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="flex items-center gap-1.5 text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              {title}
+              {info ? <InfoTip label={`About ${title}`}>{info}</InfoTip> : null}
+            </h2>
+            {subtitle ? (
+              <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{subtitle}</p>
+            ) : null}
+          </div>
+          {action ? <div className="shrink-0">{action}</div> : null}
         </header>
       ) : null}
       {children}

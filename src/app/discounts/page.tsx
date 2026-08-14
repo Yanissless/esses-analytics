@@ -6,7 +6,7 @@ import {
   type CodeVerdict,
   type DiscountCodeRow,
 } from "@/metrics/discounts";
-import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
+import { Badge, Card, Caveat, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
 
@@ -117,45 +117,29 @@ export default async function DiscountsPage({
           />
         </div>
 
-        <Card
-          title="Read this before cutting a code"
-          subtitle="Two ways this table misleads if taken at face value."
-        >
-          <ul className="space-y-2 text-xs text-neutral-600 dark:text-neutral-400">
-            <li>
-              <strong className="text-neutral-800 dark:text-neutral-200">
-                Coded and uncoded orders are different populations.
-              </strong>{" "}
-              The baseline is {pct(review.baseline.firstOrderShare)} first-time buyers. A welcome
-              code is close to 100% first-time, so comparing the two measures &ldquo;first order
-              versus any order&rdquo; as much as it measures the code. The{" "}
-              <em>first-time</em> column is there so you can see when the comparison is
-              unlike-for-unlike.
-            </li>
-            <li>
-              <strong className="text-neutral-800 dark:text-neutral-200">
-                Averages are over PAID orders.
-              </strong>{" "}
-              A $0 order carries COGS with no revenue — its money is recognised in Skio — so
-              including it would measure giveaway volume rather than code performance. Dividing
-              by every order put the baseline at −$1.31, i.e. it claimed the average undiscounted
-              order lost money. It doesn&rsquo;t: it earns{" "}
-              {money(review.baseline.cm2PerPaidOrder)}.
-            </li>
-            <li>
-              <strong className="text-neutral-800 dark:text-neutral-200">
-                Giveaways are labelled, not ranked.
-              </strong>{" "}
-              A code attached to a free-issue offer has negative margin by design. It is marked{" "}
-              <em>acquisition</em> and judged on what those customers do next — the same
-              treatment free-offer campaigns get on Campaigns &amp; creatives.
-            </li>
-            <li>
-              <strong className="text-neutral-800 dark:text-neutral-200">Boundary:</strong>{" "}
-              {review.boundary}
-            </li>
-          </ul>
-        </Card>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <Caveat summary="Coded and uncoded orders are different populations" tone="warn">
+            The baseline is {pct(review.baseline.firstOrderShare)} first-time buyers, while a
+            welcome code is close to 100% first-time. Comparing them measures &ldquo;first order
+            versus any order&rdquo; as much as it measures the code. The <em>first-time</em>{" "}
+            column is there so you can see when the comparison is unlike-for-unlike.
+          </Caveat>
+
+          <Caveat summary="Averages are over paid orders only">
+            A $0 order carries COGS with no revenue, because its money is recognised in Skio.
+            Including those would measure giveaway volume rather than code performance. Dividing
+            by every order put this baseline at −$1.31 — claiming the average undiscounted order
+            loses money. It doesn&rsquo;t: it earns {money(review.baseline.cm2PerPaidOrder)}.
+          </Caveat>
+
+          <Caveat summary="Giveaways are labelled, not ranked">
+            A code on a free-issue offer has negative margin by design. It is marked{" "}
+            <em>acquisition</em> and judged on what those customers do next — the same treatment
+            free-offer campaigns get on Campaigns &amp; creatives.
+          </Caveat>
+
+          <Caveat summary="CM2 boundary">{review.boundary}</Caveat>
+        </div>
 
         <Card
           title="Codes"
