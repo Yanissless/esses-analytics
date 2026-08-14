@@ -272,19 +272,16 @@ export default async function MarketingPage({
                       It claims {formatNum(Math.round(r.platformConversions))} purchases in a window
                       where the store took {formatNum(r.storeOrdersInWindow)} orders in total, from
                       every channel — a platform cannot drive more purchases than happened. The
-                      connector previously summed Meta&rsquo;s overlapping{" "}
+                      connector once summed Meta&rsquo;s overlapping{" "}
                       <code className="font-mono">omni_purchase</code>,{" "}
                       <code className="font-mono">purchase</code> and{" "}
                       <code className="font-mono">offsite_conversion.fb_pixel_purchase</code> action
-                      types, inflating the figure roughly 3×. That is fixed in code, but{" "}
-                      <strong>
-                        these rows were written before the fix and need a re-sync to correct
-                      </strong>
-                      : <code className="font-mono">run.cmd backfill --source=ads</code>, which needs
-                      a working <code className="font-mono">META_ACCESS_TOKEN</code> (the current one
-                      returns &ldquo;API access blocked&rdquo;). Until then treat every{" "}
-                      {r.platform}-side figure below as void; our own attribution and the blended
-                      metrics are unaffected.
+                      types, inflating the figure roughly 3×. That was fixed and the affected rows
+                      were re-synced on 13 Aug 2026, so this warning firing again means{" "}
+                      <strong>either a new overlapping action type or a genuinely impossible
+                      claim</strong> — not the old bug. Treat every {r.platform}-side figure below
+                      as void until it is investigated; our own attribution and the blended metrics
+                      are unaffected, because neither depends on the platform&rsquo;s count.
                     </div>
                   ) : null}
 
@@ -327,8 +324,8 @@ export default async function MarketingPage({
                         {formatUsd(r.ourRevenueCents)} to {r.platform}, with a further{" "}
                         {formatNum(Math.round(r.ambiguousConversions))} untagged social orders that
                         may belong to it. That puts real ROAS somewhere in {x(r.ourRoas)}–
-                        {x(r.ceilingRoas)} and CAC at {money(r.ourCac)} or better. The comparison
-                        against {r.platform}&rsquo;s own claim has to wait for a re-sync.
+                        {x(r.ceilingRoas)} and CAC at {money(r.ourCac)} or better. Only the
+                        comparison against {r.platform}&rsquo;s own claim is unavailable.
                       </>
                     ) : r.gapExplainableByUntagged ? (
                       <>

@@ -9,6 +9,18 @@ each subscription — which it currently cannot.
 
 ---
 
+## There are TWO ad paths, and they need different handling
+
+| Ads | Where the click lands | Covered by Step 1+2 below? |
+|---|---|---|
+| Most campaigns | **esses.com** (Craft), then Shopify checkout | Yes |
+| **Free quarterly** | **Skio free checkout, directly** | **No — see "The Skio path" below** |
+
+Free quarterly is currently the **largest spender**, so the second row matters more than
+the first. It bypasses esses.com entirely because Craft cannot yet issue $0 subscriptions,
+so the ads point straight at Skio's hosted checkout. That is expected to change when
+subscriptions move fully onto Craft; until then this path needs its own answer.
+
 ## Why this is needed
 
 Ads point at **esses.com** (Craft). Checkout happens in **Shopify/Skio**.
@@ -151,6 +163,50 @@ see `utm_source`, `utm_campaign`, `utm_content` and the rest listed there.
 If they appear, it is working, and Esses Analytics will pick them up on the next sync.
 
 ---
+
+## The Skio path (free quarterly ads)
+
+These ads point straight at Skio's hosted checkout, so the script above never runs — there
+is no esses.com page in the journey to run it on.
+
+The useful fact is that **a Skio subscription creates a Shopify order**. Skio's API exposes
+`Orders { platformId }` per subscription, and Esses Analytics already reads `customAttributes`
+off every Shopify order. So if Skio forwards checkout parameters onto the order it creates,
+this path works with no extra code at all.
+
+Whether it does is a property of Skio's implementation, and it is quicker to test than to
+research.
+
+### Test it first — 10 minutes, no code
+
+1. Take the Skio checkout URL the free quarterly ads currently use.
+2. Append test parameters:
+
+   ```
+   ?utm_source=facebook&utm_medium=paid_social&utm_campaign=SKIOTEST&utm_content=SKIOAD1
+   ```
+
+3. Complete a free subscription through it.
+4. In Shopify admin, open the resulting order and look at **Additional details**.
+
+**If the parameters appear:** nothing more to build. Tag the free quarterly ads with the
+same string as every other campaign and they will be attributed.
+
+**If they do not appear:** Skio drops them, and the fix is a redirect page (below).
+
+### If Skio drops them: a thin redirect page
+
+Point the free quarterly ads at an esses.com URL instead of the Skio one — e.g.
+`https://esses.com/free-quarterly`. That page runs the Step 1 script like every other page,
+then forwards immediately to the Skio checkout with the captured values appended.
+
+This is worth doing even if it costs a redirect, because it puts capture under our control
+on both paths rather than depending on a third party's parameter handling. It also survives
+the eventual move off Skio: when subscriptions come onto Craft, only the redirect target
+changes.
+
+Keep the redirect server-side (a Craft route) rather than a JavaScript bounce, so the click
+is not lost if scripts are slow or blocked.
 
 ## What NOT to do
 
