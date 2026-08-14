@@ -19,6 +19,8 @@ import { Badge, Card, DeltaBadge, Stat, formatNum, formatUsd } from "../_compone
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
 import { FreshnessBanner } from "../_components/freshness-banner";
+import { ChannelHealthGrid } from "./channel-health";
+import { buildChannelHealthList, toChannelPeriod } from "@/metrics/channel-health";
 import { getSourceFreshness } from "@/lib/freshness.server";
 
 export const dynamic = "force-dynamic";
@@ -80,10 +82,24 @@ export default async function MarketingPage({
     getSourceFreshness(),
   ]);
 
-  // Only the blended headline is compared. Fetching a second copy of the channel tables and
-  // the reconciliation would double the query load for a row of arrows nobody asked for,
-  // and a per-channel delta over a short window is mostly attribution noise.
-  const priorPeriod = comparison ? await getPeriodMetrics(comparison.since, comparison.until) : null;
+  // The comparison period is now fetched for CHANNELS as well as the blended headline.
+  //
+  // This used to be deliberately skipped — "a row of arrows nobody asked for". Sam asked for
+  // it: the channel health cards are the whole point of the comparison, and a per-channel
+  // delta is only attribution noise when it is presented without a volume floor. It has one
+  // now (MIN_CONVERSIONS_TO_GRADE), so a channel too small to trust says so instead of
+  // rendering a confident arrow.
+  const [priorPeriod, priorChannels] = comparison
+    ? await Promise.all([
+        getPeriodMetrics(comparison.since, comparison.until),
+        getChannelPerformance(comparison.since, comparison.until, model, 7, basis),
+      ])
+    : [null, []];
+
+  const channelHealth = buildChannelHealthList(
+    channels.map(toChannelPeriod),
+    priorChannels.map(toChannelPeriod),
+  );
   const d = (cur: number | null, prev: number | null) =>
     priorPeriod && cur != null && prev != null ? delta(cur, prev) : null;
 
@@ -237,6 +253,8 @@ export default async function MarketingPage({
             a marketing one.
           </div>
         ) : null}
+
+        <ChannelHealthGrid health={channelHealth} />
 
         {/* ---- the reconciliation surface (Section 8.4) ---- */}
         <Card
