@@ -1,6 +1,16 @@
 # Normalise line endings to LF in the repo (avoids CRLF churn on Windows).
 * text=auto eol=lf
 
+# Windows batch files: CRLF, always.
+#
+# The blanket `eol=lf` above would otherwise convert these on checkout, and cmd.exe
+# is not reliably tolerant of LF-only batch files — `goto` seeks by byte offset and
+# parenthesised blocks can mis-parse. `UPDATE DATA.cmd` broke this way once already
+# and git warned it would silently undo the fix on the next checkout, so it is
+# pinned here rather than left to whoever notices next.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
 # Binary / generated
 pnpm-lock.yaml -diff
 *.png binary
