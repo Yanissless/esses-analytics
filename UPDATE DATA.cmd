@@ -2,23 +2,34 @@
 REM ===========================================================================
 REM  Double-click this file to refresh all the data in Esses Analytics.
 REM
-REM  ## Why this does NOT call run.cmd
+REM  ## Why this uses node.exe directly and never pnpm
 REM
-REM  It used to, and it failed on Sam's machine with only "The system cannot
-REM  find the path specified" and no pnpm output at all - meaning run.cmd died
-REM  before reaching pnpm. It could never be reproduced from a terminal, so
-REM  rather than keep guessing at a layer I cannot observe, this file now does
-REM  the work itself: set PATH, then invoke pnpm directly.
+REM  It failed three times on Sam's machine while passing every test on mine.
+REM  The reason turned out to be sandbox virtualisation, not any bug in the
+REM  batch file:
 REM
-REM  Every path is printed and checked BEFORE it is used, so the next failure
-REM  names the thing that is missing instead of producing one cryptic line.
+REM    %APPDATA%\npm\pnpm.cmd  is a REPARSE POINT into
+REM    AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\npm\
 REM
-REM  There is deliberately no `chcp` call. Changing the console codepage part
-REM  way through a batch file can make cmd.exe lose its position in the script,
-REM  because it re-reads the file by byte offset. Mojibake in the output is
-REM  cosmetic; a launcher that does not run is not.
+REM  The Claude desktop app runs in an MSIX container where %APPDATA% is
+REM  redirected. pnpm was installed from inside that container, so it only
+REM  exists at the redirected location. Commands I run resolve to it; a plain
+REM  Explorer double-click resolves to the real C:\Users\samwi\AppData\Roaming,
+REM  where pnpm is genuinely absent. Same path string, two different files.
 REM
-REM  ASCII only, CRLF endings. No em dashes, no smart quotes, ever.
+REM  run.cmd has the same %APPDATA%\npm dependency, which means it has NEVER
+REM  worked outside the container either.
+REM
+REM  So nothing here may touch AppData. Both things it uses are real files on
+REM  disk, visible to every process:
+REM
+REM    C:\Program Files\nodejs\node.exe   - system-wide Node install
+REM    node_modules\tsx\dist\cli.mjs      - a HARDLINK, so real content, and
+REM                                         its junction points inside the
+REM                                         project folder rather than AppData
+REM
+REM  ASCII only, CRLF endings, and no chcp - changing the codepage part way
+REM  through a batch file can make cmd.exe lose its place in the script.
 REM ===========================================================================
 
 title Esses Analytics - updating data
@@ -31,11 +42,11 @@ echo.
 
 set "HERE=%~dp0"
 set "NODE_EXE=C:\Program Files\nodejs\node.exe"
-set "PNPM_CMD=%APPDATA%\npm\pnpm.cmd"
+set "TSX=%HERE%node_modules\tsx\dist\cli.mjs"
 
 echo  Project folder : %HERE%
 echo  Node           : %NODE_EXE%
-echo  pnpm           : %PNPM_CMD%
+echo  tsx            : %TSX%
 echo.
 
 if not exist "%HERE%package.json" (
@@ -47,17 +58,21 @@ if not exist "%HERE%package.json" (
 
 if not exist "%NODE_EXE%" (
   echo  PROBLEM: Node.js is not installed at the path above.
-  echo  Reinstall Node.js from nodejs.org, then try again.
+  echo  Install it from nodejs.org, then try again.
   goto failed
 )
 
-if not exist "%PNPM_CMD%" (
-  echo  PROBLEM: pnpm is not installed at the path above.
-  echo  Open PowerShell and run:  npm install -g pnpm
+if not exist "%TSX%" (
+  echo  PROBLEM: the project dependencies are not installed.
+  echo  Ask Claude to run the install step, then try again.
   goto failed
 )
 
-set "PATH=C:\Program Files\nodejs;%APPDATA%\npm;%PATH%"
+cd /d "%HERE%"
+if errorlevel 1 (
+  echo  PROBLEM: could not enter the project folder.
+  goto failed
+)
 
 echo  All three found. Starting.
 echo.
@@ -69,13 +84,7 @@ echo   Step 1 of 2: pulling new data
 echo  -------------------------------------------
 echo.
 
-cd /d "%HERE%"
-if errorlevel 1 (
-  echo  PROBLEM: could not enter the project folder.
-  goto failed
-)
-
-call "%PNPM_CMD%" sync
+"%NODE_EXE%" "%TSX%" "%HERE%scripts\sync.ts"
 if errorlevel 1 (
   echo.
   echo  The data pull reported a problem. Scroll up for the reason.
@@ -88,7 +97,7 @@ echo   Step 2 of 2: recomputing profit and metrics
 echo  -------------------------------------------
 echo.
 
-call "%PNPM_CMD%" metrics
+"%NODE_EXE%" "%TSX%" "%HERE%scripts\rebuild-metrics.ts"
 if errorlevel 1 (
   echo.
   echo  The metrics rebuild reported a problem. Scroll up for the reason.
