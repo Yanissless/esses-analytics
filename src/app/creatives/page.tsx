@@ -71,8 +71,9 @@ function MeasureCell({ row }: { row: CampaignRow | CreativeRow }) {
  *    links are invisible to it no matter how many sales they caused.
  *
  * So "0 orders" against a non-zero Meta figure means UNMEASURED here, not unsuccessful — and
- * with 1 of 51 creatives tagged, that is currently most of them. The label says which it is,
- * because a bare 0 next to Meta's 11 reads as a bug in the app.
+ * account-wide tagging is fine (340 tagged paid-Meta touchpoints, all campaign IDs matching a
+ * real campaign) — the gaps are specific: esses.com destinations lose their parameters at the
+ * Craft handoff, and organic social links are untagged entirely. See docs/utm-tagging-status.md.
  */
 function CreativeGap({ row }: { row: CreativeRow }) {
   const meta = Math.round(row.metaConversions);
@@ -235,8 +236,8 @@ export default async function CreativesPage({
         </div>
 
         {/* Was a full Card of four prose paragraphs sitting above the numbers it hedged.
-            The caveats are not optional — a per-creative ROAS read without knowing 50 of 51
-            creatives are untagged is worse than no number — but they do not need to occupy a
+            The caveats are not optional — a per-creative ROAS read without knowing how much of
+            the account it covers is worse than no number — but they do not need to occupy a
             third of the page. One line each, detail behind the `i`. */}
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <Caveat
@@ -244,9 +245,15 @@ export default async function CreativesPage({
             tone="warn"
           >
             They show &ldquo;no tagged orders&rdquo;, which means{" "}
-            <strong>unmeasured, not unsuccessful</strong>. Only compare a tagged creative against
-            another tagged creative. Fixing this needs esses.com to forward UTM parameters into
-            the order — see <code className="font-mono">docs/esses-com-attribution.md</code>.
+            <strong>unmeasured, not unsuccessful</strong>. Only compare a tagged creative
+            against another tagged creative.{" "}
+            <strong>This count is scoped to the selected date range</strong> — an ad only counts
+            as tagged here if it carried a tag AND had spend inside this window, so a low figure
+            is not evidence that tagging is broken account-wide. Across all time, 340 paid-Meta
+            touchpoints carry Meta campaign and ad IDs and 100% of the campaign IDs match a real
+            campaign. The two real gaps are ads pointing at esses.com, whose parameters are lost
+            at the Craft handoff, and organic social links, which are not tagged at all — see{" "}
+            <code className="font-mono">docs/utm-tagging-status.md</code>.
           </Caveat>
 
           <Caveat summary="Meta's numbers and ours are never blended">
