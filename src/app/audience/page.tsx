@@ -8,7 +8,6 @@ import {
   AudienceTable,
   IndexedGrowthChart,
   LagProfileChart,
-
 } from "./charts";
 
 export const dynamic = "force-dynamic";
@@ -72,15 +71,15 @@ export default async function AudiencePage() {
             <div className="space-y-3 text-sm text-neutral-600 dark:text-neutral-400">
               <p>
                 Everything on this page is built and tested; it has no follower numbers to
-                draw. Instagram follower counts need four Meta scopes that the token does
-                not currently carry —{" "}
+                draw for this platform. The four Meta scopes it needs —{" "}
                 <code className="font-mono text-xs">instagram_basic</code>,{" "}
                 <code className="font-mono text-xs">instagram_manage_insights</code>,{" "}
                 <code className="font-mono text-xs">pages_show_list</code> and{" "}
-                <code className="font-mono text-xs">pages_read_engagement</code> — and the
-                app can currently see 0 Pages. Run{" "}
-                <code className="font-mono text-xs">run.cmd check:meta</code> for the
-                current state.
+                <code className="font-mono text-xs">pages_read_engagement</code> — were
+                granted on 12 Aug 2026 and the connector went live on the 13th, so if this
+                message is showing then either the sync has not run or the scopes have since
+                lapsed. Run <code className="font-mono text-xs">run.cmd check:meta</code> to
+                see which.
               </p>
               <p>
                 <strong className="text-neutral-800 dark:text-neutral-200">
@@ -212,31 +211,25 @@ run.cmd import:social --platform=instagram --date=2026-08-11 --followers=18240`}
                 label="followers per subscriber"
                 precision={1}
               />
-              <p className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">
-                Why the two totals aren&apos;t drawn on one chart: at roughly{" "}
-                {growth.latest.followers && growth.latest.subscribers
-                  ? `${formatNum(growth.latest.followers)} against ${formatNum(growth.latest.subscribers)}`
-                  : "18,000 against 2,000"}{" "}
-                they are an order of magnitude apart, so sharing a chart would mean two
-                y-axes — and then where the lines cross and how far apart they sit follow
-                from where those axes were placed rather than from the business. Two charts
-                above give you each real number on its own scale; this ratio gives you the
-                comparison as a single series that can&apos;t be distorted that way.
-              </p>
             </Card>
 
             <Card
               title="Growth, indexed to a common base"
-              subtitle="Both series = 100 at the first observed week. One axis on purpose — see the note below."
+              subtitle="Both series = 100 at the first observed week. One axis, on purpose."
+              info={
+                <>
+                  <strong>Why never two y-axes.</strong> The two totals are an order of
+                  magnitude apart, so putting them on one chart needs a second scale — and then
+                  where the lines cross and how far apart they sit follow from where those axes
+                  were placed rather than from the business. Slide one and the story changes.
+                  Indexing both to 100 removes that: the steeper line is genuinely growing
+                  faster. The ratio chart above does the same job as a single series that cannot
+                  be distorted either.
+                </>
+              }
             >
               <IndexedGrowthChart points={growth.indexed} />
               <AudienceTable points={growth.indexed} />
-              <p className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">
-                Indexed rather than plotted on two y-axes. With a dual axis, where the
-                lines cross and how far apart they sit follow from where the two scales
-                were placed, not from the data — slide one and the story changes. Indexed,
-                the steeper line is genuinely growing faster.
-              </p>
             </Card>
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
