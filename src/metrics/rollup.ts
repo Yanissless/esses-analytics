@@ -18,6 +18,7 @@
  * channel-level ROAS stays null rather than guessing.
  */
 import { sql } from "drizzle-orm";
+import { REVENUE_CLASS_CASE } from "./revenue-class";
 import { db } from "../db/client";
 import { logger } from "../lib/logger";
 import { expectedRateCentsSql } from "../lib/shipping/rate-rules";
@@ -50,7 +51,7 @@ export interface RollupResult {
  */
 const DAILY_SOURCE = sql`
   WITH ord AS (
-    SELECT o.id, o.processed_at::date AS d,
+    SELECT o.id, o.processed_at::date AS d, o.discount_codes,
            o.total_amount, o.total_refunded_amount, o.total_discounts_amount,
            o.shipping_amount, o.acquisition_order, o.customer_id,
            o.order_type, o.subscription_meta_id,
@@ -70,13 +71,9 @@ const DAILY_SOURCE = sql`
            COALESCE(mc.shipping_zone, 'row') AS zone,
            CASE WHEN mc.vat_basis = 'standard' THEN mc.std_vat_pct
                 ELSE COALESCE(mc.print_vat_pct, 0) END AS vat_pct,
-           -- Must match metrics/order-profit.ts exactly. A $0 order for a customer
-           -- who holds a subscription is a prepaid delivery, not a free copy.
-           CASE WHEN ord.total_amount > 0 THEN 'paid'
-                WHEN ord.subscription_meta_id IS NOT NULL
-                     OR ord.order_type = 'subscription_shopify' THEN 'prepaid_delivery'
-                WHEN ord.customer_has_subscription THEN 'prepaid_delivery'
-                ELSE 'comp' END AS revenue_class
+           -- Single definition, shared with metrics/order-profit.ts. It used to be a copy
+           -- here with a comment saying it must match; a comment is not a mechanism.
+           ${REVENUE_CLASS_CASE} AS revenue_class
       FROM ord
       LEFT JOIN market_config mc ON mc.country_code = ord.country
   ),

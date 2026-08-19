@@ -133,3 +133,17 @@ export const ACQUISITION_PROMO_SQL_REGEX = `^(${PROMO_DEFINITIONS.filter(
 )
   .map((d) => d.code)
   .join("|")})$`;
+
+/**
+ * Anchored alternation for codes whose giveaway is NOT an acquisition cost — win-back and
+ * comps. These classify as `comp`, per Sam's decision of 18 Aug 2026.
+ *
+ * Win-back sits here rather than with acquisition because the recipient had already been won
+ * once; the free year is a retention expense. VIP comps sit here because nobody expected
+ * revenue from them at all.
+ */
+export const COMP_PROMO_SQL_REGEX = `^(${PROMO_DEFINITIONS.filter(
+  (d) => d.purpose === "win-back" || d.purpose === "comp",
+)
+  .map((d) => d.code)
+  .join("|")})$`;

@@ -16,6 +16,7 @@
  * rather than a correlated lookup per page load.
  */
 import { sql } from "drizzle-orm";
+import { REVENUE_CLASS_CASE } from "./revenue-class";
 import { db } from "../db/client";
 import { logger } from "../lib/logger";
 import { expectedRateCentsSql } from "../lib/shipping/rate-rules";
@@ -40,6 +41,7 @@ export async function rebuildOrderProfit(): Promise<OrderProfitRebuildResult> {
     )
     WITH ord AS (
       SELECT o.id, o.order_number, o.processed_at::date AS d, o.currency,
+             o.discount_codes,
              o.total_amount, o.total_refunded_amount, o.total_discounts_amount,
              o.shipping_amount, o.order_type, o.subscription_meta_id,
              COALESCE(o.shipping_country, o.billing_country) AS country,
@@ -60,20 +62,9 @@ export async function rebuildOrderProfit(): Promise<OrderProfitRebuildResult> {
              COALESCE(mc.shipping_zone, 'row') AS zone,
              CASE WHEN mc.vat_basis = 'standard' THEN mc.std_vat_pct
                   ELSE COALESCE(mc.print_vat_pct, 0) END AS vat_pct,
-             -- Revenue class. The subtle case is a $0 order for a customer who DOES
-             -- hold a subscription: that's an issue they already paid for, arriving
-             -- as its own fulfilment order with no selling plan on the line — NOT a
-             -- giveaway. Treating those as comps inflated "free copies" by ~2,400
-             -- units (Issue 03 / Issue 04 Pre-Order) and produced a nonsense
-             -- negative bottom line. True comps are contributor/VIP/event copies for
-             -- people who never subscribed and never paid.
-             CASE
-               WHEN ord.total_amount > 0 THEN 'paid'
-               WHEN ord.subscription_meta_id IS NOT NULL
-                    OR ord.order_type = 'subscription_shopify' THEN 'prepaid_delivery'
-               WHEN ord.customer_has_subscription THEN 'prepaid_delivery'
-               ELSE 'comp'
-             END AS revenue_class
+             -- Single definition, shared with metrics/rollup.ts. See metrics/revenue-class.ts
+             -- for the classes and why the branch order matters.
+             ${REVENUE_CLASS_CASE} AS revenue_class
         FROM ord LEFT JOIN market_config mc ON mc.country_code = ord.country
     ),
     line_costs AS (
