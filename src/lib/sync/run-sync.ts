@@ -80,12 +80,15 @@ async function lastCursor(source: string): Promise<string | undefined> {
 async function runIncremental(
   connector: Connector,
   configured: boolean,
+  forceFull = false,
 ): Promise<SourceResult> {
   if (!configured) {
     logger.warn(`${connector.source} not configured — skipping`);
     return { source: connector.source, ok: true, rows: 0, skipped: true };
   }
-  const cursor = await lastCursor(connector.source);
+  // Passing no cursor makes a connector load everything — see each connector's
+  // incrementalSync, which falls back to a full walk rather than inventing a window.
+  const cursor = forceFull ? undefined : await lastCursor(connector.source);
   try {
     const r = await withSyncRun(connector.source, "incremental", () =>
       connector.incrementalSync(cursor),
@@ -146,25 +149,37 @@ async function runInstagram(configured: boolean): Promise<SourceResult> {
  * rebuild after new orders land makes `/international` silently under-report.
  */
 export async function runSync(
-  opts: { sources?: string[]; skipMetrics?: boolean } = {},
+  opts: { sources?: string[]; skipMetrics?: boolean; full?: string[] } = {},
 ): Promise<SyncSummary> {
   const started = Date.now();
   const sources = opts.sources?.length ? opts.sources : [...ALL_SYNC_SOURCES];
+  // Sources to load COMPLETELY rather than from their cursor.
+  //
+  // Exists because incremental correctness rests on the source stamping a change timestamp on
+  // every change. Skio's `updatedAt` demonstrably tracks most changes — 2,710 updated against
+  // 293 created in a week — but "most" is not "all", and a missed cancellation would sit in the
+  // data indefinitely because nothing would ever look at that row again. A periodic full walk
+  // reconciles rather than trusting.
+  const full = new Set(opts.full ?? []);
   const results: SourceResult[] = [];
 
   if (sources.includes("shopify")) {
-    results.push(await runIncremental(shopifyConnector, connectorConfigured.shopify()));
+    results.push(
+      await runIncremental(shopifyConnector, connectorConfigured.shopify(), full.has("shopify")),
+    );
   }
   if (sources.includes("skio")) {
-    results.push(await runIncremental(skioConnector, connectorConfigured.skio()));
+    results.push(await runIncremental(skioConnector, connectorConfigured.skio(), full.has("skio")));
   }
   if (sources.includes("stripe")) {
-    results.push(await runIncremental(stripeConnector, connectorConfigured.stripe()));
+    results.push(
+      await runIncremental(stripeConnector, connectorConfigured.stripe(), full.has("stripe")),
+    );
   }
   // Ad platforms come from the registry, so a new one needs no change here.
   for (const p of AD_PLATFORMS) {
     if (!sources.includes(p.platform) && !sources.includes("ads")) continue;
-    results.push(await runIncremental(asConnector(p), p.isConfigured()));
+    results.push(await runIncremental(asConnector(p), p.isConfigured(), full.has(p.platform)));
   }
 
   /**

@@ -4,6 +4,10 @@
     {
       "path": "/api/sync",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/sync?source=skio&full=skio",
+      "schedule": "0 4 * * 0"
     }
   ]
 }

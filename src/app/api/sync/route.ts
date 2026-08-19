@@ -6,8 +6,8 @@
  *
  * ⚠️ **Incremental only — never use this for a backfill.** A full backfill walks ~170
  * sequential Shopify pages and takes about ten minutes, which exceeds serverless
- * function limits on every plan worth using. Backfills stay a deliberate operator
- * action, run from a machine against the production database:
+ * function limits on every plan. Backfills stay a deliberate operator action, run from a
+ * machine against the production database:
  *
  *   DATABASE_URL=<prod> run.cmd backfill --since=2025-10-01 --source=shopify
  *
@@ -25,7 +25,28 @@ import { ALL_SYNC_SOURCES, runSync } from "@/lib/sync/run-sync";
 /** The sync is long-running and DB-bound; it must not run on the Edge runtime. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Generous but bounded. Incremental is ~10s in practice; this is the safety net. */
+/**
+ * The platform ceiling, requested in full.
+ *
+ * The old comment here claimed "incremental is ~10s in practice". Measured on 18 Aug 2026 it
+ * was NINE MINUTES, dominated by a Skio connector that re-read all 3,935 subscriptions every
+ * run. Per source, skipping the rollup:
+ *
+ *   shopify    36.6s
+ *   skio      479.2s   <- fixed; now filters on updatedAt
+ *   stripe      6.0s
+ *   ads        10.5s
+ *   instagram   4.4s
+ *   metrics     4.3s
+ *
+ * 300s is the maximum Vercel allows and it needs a PRO plan; Hobby caps lower. If a run ever
+ * approaches it again, split the schedule per source in vercel.json rather than raising this,
+ * because there is nothing above 300 to raise it to.
+ *
+ * Why an overrun is worse than it sounds: the platform kills the function from outside, so
+ * `withSyncRun` never runs its failure branch. The run stays marked started-but-never-finished
+ * and the freshness banner reports data as current. A silent nightly half-sync.
+ */
 export const maxDuration = 300;
 
 /** Constant-time compare so a wrong secret can't be recovered by timing the response. */
@@ -67,6 +88,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: auth.msg }, { status: auth.status });
   }
 
+  // ?full=skio forces a complete reload of that source instead of reading from its cursor.
+  // Meant for a weekly reconcile cron; see the note on `full` in run-sync.ts.
+  const fullParam = req.nextUrl.searchParams.get("full");
+  const full = fullParam
+    ? fullParam.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+
   const requested = req.nextUrl.searchParams.get("source");
   const sources = requested
     ? requested.split(",").map((s) => s.trim()).filter(Boolean)
@@ -81,7 +109,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const summary = await runSync({ sources });
+    const summary = await runSync({ sources, full });
     // 207 when some sources failed: the scheduler should notice, but the run did
     // useful work and retrying everything would be wrong.
     return NextResponse.json(summary, { status: summary.ok ? 200 : 207 });
