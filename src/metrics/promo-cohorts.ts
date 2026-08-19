@@ -44,6 +44,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db/client";
 import {
+  ACQUISITION_PROMO_SQL_REGEX,
   ALL_PROMO_SQL_REGEX,
   promoDefinition,
   type PromoPurpose,
@@ -300,5 +301,53 @@ export async function getPromoCohorts(): Promise<PromoCohortReport> {
     compCostCents: sumCost(byPurpose("comp")),
     // Comps are excluded: they are not waiting to mature, they are never going to convert.
     immatureCohorts: cohorts.filter((c) => c.purpose !== "comp" && c.matured === 0).length,
+  };
+}
+
+export interface FreeIssueCost {
+  since: string;
+  until: string;
+  /** Product + shipping + fulfilment on ACQUISITION free issues shipped in the window. */
+  costCents: number;
+  /** Free issues shipped in the window. */
+  issues: number;
+  /** Purposes excluded from the figure, so a caller can say what it does NOT contain. */
+  excluded: string;
+}
+
+/**
+ * Free-issue acquisition cost inside a date range, for the CAC toggle.
+ *
+ * Deliberately narrower than `getPromoCohorts`, which is all-time because a cohort's whole
+ * point is what happened to it over time. This one is windowed, because a CAC for a period has
+ * to charge the cost incurred IN that period.
+ *
+ * ACQUISITION ONLY. Comps are a relationship cost and win-back is money spent on someone
+ * already acquired once; folding either into CAC would overstate the cost of finding a new
+ * subscriber. `excluded` names them so the page can say so rather than leaving it implied.
+ */
+export async function getFreeIssueCost(since: string, until: string): Promise<FreeIssueCost> {
+  const rows = await db.execute<{ cost_cents: string; issues: number }>(sql`
+    SELECT COALESCE(sum(p.cogs_amount + p.ship_cost_amount + p.other_fulfil_amount), 0)::bigint
+             AS cost_cents,
+           count(*)::int AS issues
+      FROM orders o
+      JOIN order_profit p ON p.order_id = o.id
+      CROSS JOIN LATERAL unnest(COALESCE(o.discount_codes, ARRAY[]::text[])) AS c
+     WHERE o.test = false AND o.cancelled_at IS NULL
+       AND o.total_amount <= 0
+       AND o.order_type = 'subscription_shopify'
+       AND upper(trim(c)) ~* ${ACQUISITION_PROMO_SQL_REGEX}
+       AND o.processed_at::date >= ${since}
+       AND o.processed_at::date <= ${until}
+  `);
+
+  const row = [...rows][0];
+  return {
+    since,
+    until,
+    costCents: Number(row?.cost_cents ?? 0),
+    issues: Number(row?.issues ?? 0),
+    excluded: "win-back offers and VIP comps",
   };
 }

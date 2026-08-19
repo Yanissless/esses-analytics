@@ -15,13 +15,15 @@ import {
 } from "@/attribution/reconciliation";
 import { delta } from "@/lib/date-range";
 import { resolvePageRange } from "@/lib/date-range.server";
-import { Badge, Card, DeltaBadge, Stat, formatNum, formatUsd } from "../_components/ui";
+import { Badge, Card, Caveat, DeltaBadge, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
 import { FreshnessBanner } from "../_components/freshness-banner";
 import { ChannelHealthGrid } from "./channel-health";
 import { buildChannelHealthList, toChannelPeriod } from "@/metrics/channel-health";
 import { getSourceFreshness } from "@/lib/freshness.server";
+import { buildCac, CAC_BASES, isCacBasis, type CacBasis } from "@/metrics/cac-basis";
+import { getFreeIssueCost } from "@/metrics/promo-cohorts";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +65,10 @@ export default async function MarketingPage({
   const rawBasis = one(params.basis);
   const model: AttributionModel = isModel(rawModel) ? rawModel : "last-non-direct";
   const basis: AttributionBasis = isBasis(rawBasis) ? rawBasis : "session-only";
+  // Marketing-only by default: it is what has been quoted historically, and switching the
+  // default would silently restate every CAC figure predating today.
+  const rawCac = one(params.cac);
+  const cacBasis: CacBasis = isCacBasis(rawCac) ? rawCac : "marketing-only";
 
   // The marketing role reaches this page but must not see cost/margin figures.
   const showMargin = can(user.role, "margin");
@@ -73,13 +79,15 @@ export default async function MarketingPage({
   const since = range.since;
   const until = range.until;
 
-  const [period, channels, coverage, reconciliation, trend, freshness] = await Promise.all([
+  const [period, channels, coverage, reconciliation, trend, freshness, freeIssues] =
+    await Promise.all([
     getPeriodMetrics(since, until),
     getChannelPerformance(since, until, model, 7, basis),
     getAttributionCoverage(since, until),
     getPlatformReconciliation(since, until, model, basis),
     getPlatformTrend(since, until, "meta"),
     getSourceFreshness(),
+    getFreeIssueCost(since, until),
   ]);
 
   // The comparison period is now fetched for CHANNELS as well as the blended headline.
@@ -116,6 +124,13 @@ export default async function MarketingPage({
    * artefact of the revenue-recognition boundary, not a marketing fact — see the
    * open question about recognising subscription revenue ratably.
    */
+  const cac = buildCac({
+    basis: cacBasis,
+    marketingCents: period.adSpendCents,
+    freeIssueCents: freeIssues.costCents,
+    newCustomers: period.newCustomers,
+  });
+
   const cmPct = ratio(period.cm2Cents, period.revenueCents);
   const breakeven = breakevenMer(cmPct);
   const meta = reconciliation.find((r) => r.platform === "meta");
@@ -125,10 +140,11 @@ export default async function MarketingPage({
 
   // Model/basis links must carry the range forward, or switching attribution model silently
   // resets the window to the default and the numbers move for two reasons at once.
-  const href = (next: { model?: AttributionModel; basis?: AttributionBasis }) => {
+  const href = (next: { model?: AttributionModel; basis?: AttributionBasis; cac?: CacBasis }) => {
     const q = new URLSearchParams();
     q.set("model", next.model ?? model);
     q.set("basis", next.basis ?? basis);
+    q.set("cac", next.cac ?? cacBasis);
     q.set("range", range.preset);
     q.set("compare", compareMode);
     if (range.preset === "custom") {
@@ -166,6 +182,45 @@ export default async function MarketingPage({
             This is the page where saying so matters most. */}
         <FreshnessBanner freshness={freshness} sources={["meta", "shopify"]} />
 
+        {/* The CAC basis toggle sits with the tiles it changes, not in the attribution
+            controls further down — those govern the channel table, this governs one headline. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-neutral-500">CAC includes</span>
+          {CAC_BASES.map((b) => (
+            <Link
+              key={b.id}
+              href={href({ cac: b.id })}
+              title={b.blurb}
+              className={`rounded-lg px-2.5 py-1 text-xs transition ${
+                b.id === cacBasis
+                  ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+              }`}
+            >
+              {b.label}
+            </Link>
+          ))}
+          {cac.cacMarketingOnly !== null && cac.cacWithFreeIssues !== null ? (
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">
+              {money(cac.cacMarketingOnly)} → {money(cac.cacWithFreeIssues)}
+              {cac.inclusiveMultiple !== null ? ` (${cac.inclusiveMultiple.toFixed(1)}×)` : ""}
+            </span>
+          ) : null}
+          <Caveat summary="what the inclusive basis adds">
+            Free first issues shipped in this window: {formatUsd(freeIssues.costCents)} across{" "}
+            {formatNum(freeIssues.issues)} issues — product, shipping and fulfilment. It excludes{" "}
+            {freeIssues.excluded}, because a comp is a relationship cost and a win-back is spent
+            on someone already acquired once.
+            <br />
+            <br />
+            <strong>Note which figure improves as a cohort renews.</strong> CAC over NEW
+            customers cannot fall when someone renews — a renewal adds nothing to its
+            denominator. The figure that improves is cost per <em>paying</em> customer, on
+            Discount codes → Free-issue promos. Watching this one for that improvement would
+            mean watching a number that cannot move.
+          </Caveat>
+        </div>
+
         {/* ---- blended: needs no attribution, so it's the trustworthy headline ---- */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {/* Polarity is declared per metric: MER up is good, CAC up is not. A comparison UI
@@ -198,15 +253,19 @@ export default async function MarketingPage({
             }
           />
           <Stat
-            label="Blended CAC"
-            value={money(period.cac)}
-            hint={`${formatNum(period.newCustomers)} new customers`}
+            label={cacBasis === "with-free-issues" ? "CAC + free issues" : "Blended CAC"}
+            value={money(cac.cac)}
+            hint={
+              cacBasis === "with-free-issues"
+                ? `${formatNum(period.newCustomers)} new customers · includes ${formatUsd(freeIssues.costCents, { compact: true })} of free issues`
+                : `${formatNum(period.newCustomers)} new customers · ad spend only`
+            }
             trailing={
               <DeltaBadge
-                delta={d(period.cac, priorPeriod?.cac ?? null)}
+                delta={d(cac.cacMarketingOnly, priorPeriod?.cac ?? null)}
                 polarity="lower-is-better"
                 format={(n) => formatUsd(n)}
-                compareLabel={comparison?.label}
+                compareLabel={`${comparison?.label ?? ""} (marketing only)`}
               />
             }
           />
