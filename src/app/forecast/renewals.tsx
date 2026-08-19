@@ -29,10 +29,12 @@ export function RenewalPanel({ forecast: f }: { forecast: RenewalForecast }) {
       subtitle="What the existing book is set to bill, from Skio's next-billing dates."
       info={
         <>
-          <strong>The charge is not the MRR.</strong> `mrr_amount` is normalised to a month, so
-          a renewal bills <em>MRR × billing interval</em>. Summing MRR instead would understate
-          this book by roughly 4.6×. Both figures are shown per month so the difference is
-          visible rather than something you have to trust.
+          <strong>Charges come from plan list prices, not from MRR.</strong> Deriving them from
+          monthly-normalised MRR understated the annual book 3.8x — $26.28/yr against a real
+          $100/yr across 865 subscriptions — because that plan bills yearly but delivers
+          quarterly, and Skio queues a $0 order for each delivery. Prices are now written down
+          in <code className="font-mono">metrics/plan-prices.ts</code>; anything without a known
+          price falls back to arithmetic and is counted below.
         </>
       }
     >
@@ -57,6 +59,23 @@ export function RenewalPanel({ forecast: f }: { forecast: RenewalForecast }) {
             .join(" · ")}
         />
       </div>
+
+      {f.derivedCount > 0 || f.unknownCount > 0 ? (
+        <p className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">
+          {f.derivedCount > 0 ? (
+            <>
+              {formatNum(f.derivedCount)} subscription(s) priced by arithmetic (MRR x billing
+              interval) rather than a known plan price.{" "}
+            </>
+          ) : null}
+          {f.unknownCount > 0 ? (
+            <>
+              <strong>{formatNum(f.unknownCount)} have no usable price and are excluded from
+              the total</strong>, so it is a floor.
+            </>
+          ) : null}
+        </p>
+      ) : null}
 
       {peak && peak.share > 0.5 ? (
         <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">

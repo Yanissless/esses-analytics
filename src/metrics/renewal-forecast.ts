@@ -36,6 +36,7 @@
 
 import { sql } from "drizzle-orm";
 import { db } from "../db/client";
+import { renewalChargeCents } from "./plan-prices";
 
 /** Ratio between per-issue prices beyond which the two cadences are worth questioning. */
 export const PRICE_DIVERGENCE_FACTOR = 2;
@@ -72,6 +73,10 @@ export interface RenewalForecast {
    * PRICE_DIVERGENCE_FACTOR. Null when they agree.
    */
   priceWarning: string | null;
+  /** Subscriptions whose charge was arithmetic rather than a known plan price. */
+  derivedCount: number;
+  /** Subscriptions with no usable price at all. Excluded from the total. */
+  unknownCount: number;
 }
 
 /** Flags cadences whose annualised price disagrees enough to distrust the total. */
@@ -94,63 +99,79 @@ export function checkPriceDivergence(cadences: CadenceBreakdown[]): string | nul
 }
 
 export async function getRenewalForecast(monthsAhead = 12): Promise<RenewalForecast> {
-  const rows = await db.execute<{
+  // One row per subscription rather than a SQL GROUP BY, because the charge depends on the
+  // PLAN, and a plan price is a hand-maintained business fact rather than something the query
+  // can derive. See metrics/plan-prices.ts for why that had to change.
+  const subs = await db.execute<{
     month: string;
-    subs: number;
-    charge_cents: string;
-    mrr_cents: string;
+    selling_plan_name: string | null;
+    mrr_amount: number;
+    billing_interval_count: number | null;
   }>(sql`
-    SELECT to_char(next_billing_at, 'YYYY-MM')                              AS month,
-           count(*)::int                                                    AS subs,
-           COALESCE(sum(mrr_amount * COALESCE(billing_interval_count, 1)), 0)::bigint
-                                                                            AS charge_cents,
-           COALESCE(sum(mrr_amount), 0)::bigint                             AS mrr_cents
+    SELECT to_char(next_billing_at, 'YYYY-MM') AS month,
+           selling_plan_name,
+           mrr_amount,
+           billing_interval_count
       FROM subscription_meta
      WHERE status = 'active'
        AND next_billing_at IS NOT NULL
        AND next_billing_at >= now()
        AND next_billing_at < now() + (${monthsAhead} || ' months')::interval
-     GROUP BY 1
-     ORDER BY 1
   `);
 
-  const cadenceRows = await db.execute<{
-    interval_count: number;
-    subs: number;
-    avg_mrr: number;
-  }>(sql`
-    SELECT COALESCE(billing_interval_count, 1)::int AS interval_count,
-           count(*)::int                            AS subs,
-           COALESCE(round(avg(mrr_amount)), 0)::int  AS avg_mrr
-      FROM subscription_meta
-     WHERE status = 'active' AND next_billing_at IS NOT NULL
-     GROUP BY 1
-     ORDER BY 2 DESC
-  `);
+  const byMonth = new Map<string, RenewalMonth>();
+  const cadenceAgg = new Map<number, { subs: number; mrrTotal: number; chargeTotal: number }>();
+  let derivedCount = 0;
+  let unknownCount = 0;
 
-  const months: RenewalMonth[] = [...rows].map((r) => ({
-    month: r.month,
-    subscriptions: Number(r.subs),
-    expectedChargeCents: Number(r.charge_cents),
-    mrrSumCents: Number(r.mrr_cents),
-  }));
+  for (const r of subs) {
+    const mrr = Number(r.mrr_amount) || 0;
+    const months = Number(r.billing_interval_count) || 1;
+    const charge = renewalChargeCents({
+      sellingPlanName: r.selling_plan_name,
+      mrrCents: mrr,
+      billingIntervalCount: months,
+    });
+    if (charge.source === "derived-from-mrr") derivedCount += 1;
+    if (charge.source === "unknown") unknownCount += 1;
 
-  const cadences: CadenceBreakdown[] = [...cadenceRows].map((c) => {
-    const n = Number(c.interval_count) || 1;
-    const avgMrr = Number(c.avg_mrr);
-    return {
-      intervalCount: n,
-      subscriptions: Number(c.subs),
-      avgMrrCents: avgMrr,
-      avgChargeCents: avgMrr * n,
-      // MRR is per month by construction, so the annual equivalent is simply x12 —
-      // independent of cadence, which is exactly what makes it comparable across them.
-      annualisedCents: avgMrr * 12,
+    const m = byMonth.get(r.month) ?? {
+      month: r.month,
+      subscriptions: 0,
+      expectedChargeCents: 0,
+      mrrSumCents: 0,
     };
-  });
+    m.subscriptions += 1;
+    m.expectedChargeCents += charge.cents ?? 0;
+    m.mrrSumCents += mrr;
+    byMonth.set(r.month, m);
 
-  const totalExpectedCents = months.reduce((s, m) => s + m.expectedChargeCents, 0);
-  const totalSubscriptions = months.reduce((s, m) => s + m.subscriptions, 0);
+    const c = cadenceAgg.get(months) ?? { subs: 0, mrrTotal: 0, chargeTotal: 0 };
+    c.subs += 1;
+    c.mrrTotal += mrr;
+    c.chargeTotal += charge.cents ?? 0;
+    cadenceAgg.set(months, c);
+  }
+
+  const months = [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
+
+  const cadences: CadenceBreakdown[] = [...cadenceAgg]
+    .map(([intervalCount, c]) => {
+      const avgCharge = c.subs > 0 ? Math.round(c.chargeTotal / c.subs) : 0;
+      return {
+        intervalCount,
+        subscriptions: c.subs,
+        avgMrrCents: c.subs > 0 ? Math.round(c.mrrTotal / c.subs) : 0,
+        avgChargeCents: avgCharge,
+        // Annualised from the CHARGE now, not from MRR. MRR is the field that was wrong for
+        // the prepaid plan, so comparing cadences through it reproduced the same error.
+        annualisedCents: intervalCount > 0 ? Math.round((avgCharge * 12) / intervalCount) : 0,
+      };
+    })
+    .sort((a, b) => b.subscriptions - a.subscriptions);
+
+  const totalExpectedCents = months.reduce((s2, m) => s2 + m.expectedChargeCents, 0);
+  const totalSubscriptions = months.reduce((s2, m) => s2 + m.subscriptions, 0);
 
   const biggest =
     months.length === 0
@@ -167,5 +188,7 @@ export async function getRenewalForecast(monthsAhead = 12): Promise<RenewalForec
         ? { month: biggest.month, share: biggest.expectedChargeCents / totalExpectedCents }
         : null,
     priceWarning: checkPriceDivergence(cadences),
+    derivedCount,
+    unknownCount,
   };
 }
