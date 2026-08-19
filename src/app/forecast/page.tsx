@@ -10,6 +10,8 @@ import {
 } from "@/metrics/forecast.server";
 import { Badge, Card, Stat, TargetBadge, formatNum, formatUsd } from "../_components/ui";
 import { paceFromProgress } from "@/metrics/goal-planner";
+import { getRenewalForecast } from "@/metrics/renewal-forecast";
+import { RenewalPanel } from "./renewals";
 import { Nav } from "../_components/nav";
 import { GoalForm } from "./forms";
 
@@ -34,10 +36,11 @@ export default async function ForecastPage() {
   const asOf = lastMetricsDate ?? new Date().toISOString().slice(0, 10);
   const periodStart = `${asOf.slice(0, 7)}-01`;
 
-  const [progress, monthly, goalRows] = await Promise.all([
+  const [progress, monthly, goalRows, renewals] = await Promise.all([
     getGoalProgress(periodStart, asOf),
     getMonthlyActuals(asOf),
     db.select().from(goals).where(eq(goals.periodStart, periodStart)).orderBy(desc(goals.metric)),
+    getRenewalForecast(12),
   ]);
 
   const complete = monthly.filter((m) => m.isComplete);
@@ -115,6 +118,8 @@ export default async function ForecastPage() {
             </p>
           </Card>
         ) : null}
+
+        <RenewalPanel forecast={renewals} />
 
         <div className="grid gap-4 sm:grid-cols-2">
           {progress.map((p) => {
