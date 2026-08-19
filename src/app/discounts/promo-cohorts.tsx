@@ -10,6 +10,22 @@
 import { Card, Caveat, Stat, formatNum, formatUsd } from "../_components/ui";
 import type { PromoCohort, PromoCohortReport } from "@/metrics/promo-cohorts";
 import { MIN_MATURED_TO_RATE } from "@/metrics/promo-cohorts";
+import type { PromoPurpose } from "@/metrics/acquisition-promos";
+
+const PURPOSE_HEADING: Record<PromoPurpose, string> = {
+  acquisition: "Acquisition — free first issue or quarter",
+  "win-back": "Win-back — free period for lapsed subscribers",
+  comp: "Comps — lifetime free for clients and VIPs",
+};
+
+const PURPOSE_NOTE: Record<PromoPurpose, string> = {
+  acquisition:
+    "Money spent to win a NEW subscriber. This is the figure that belongs in CAC.",
+  "win-back":
+    "Spent on people who already subscribed once and lapsed. Judge it against other win-back attempts, not against a first-issue offer aimed at strangers.",
+  comp:
+    "Never expected to convert, so no rate is shown and the cost is excluded from acquisition. A relationship cost, not a marketing one.",
+};
 
 const pct = (v: number | null, dp = 1) => (v == null ? "—" : `${(v * 100).toFixed(dp)}%`);
 const money = (v: number | null) => (v == null ? "—" : formatUsd(v));
@@ -25,6 +41,7 @@ function CohortRow({ c }: { c: PromoCohort }) {
           <span className="ml-2 text-xs text-neutral-400">
             {c.firstGifted} → {c.lastGifted}
           </span>
+          <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{c.label}</div>
         </div>
         <span className="text-xs text-neutral-500 dark:text-neutral-400">
           {formatNum(c.customers)} customers · {money(c.costCents)} ·{" "}
@@ -144,29 +161,45 @@ export function PromoCohortPanel({ report }: { report: PromoCohortReport }) {
     >
       <div className="grid gap-3 sm:grid-cols-3">
         <Stat
-          label="Free issues given"
-          value={formatNum(report.totalCustomers)}
-          hint={`across ${report.cohorts.length} promo code(s)`}
+          label="Acquisition cost"
+          value={formatUsd(report.acquisitionCostCents, { compact: true })}
+          hint={`${formatNum(report.acquisitionCustomers)} free first issues — belongs in CAC`}
           emphasis
         />
         <Stat
-          label="Total cost"
-          value={formatUsd(report.totalCostCents, { compact: true })}
-          hint="product, shipping and fulfilment"
-          emphasis
+          label="Win-back cost"
+          value={formatUsd(report.winBackCostCents, { compact: true })}
+          hint="spent on lapsed subscribers, not new ones"
         />
         <Stat
-          label="Too young to grade"
-          value={`${report.immatureCohorts} / ${report.cohorts.length}`}
-          hint="no member has reached a renewal date"
+          label="Comps"
+          value={formatUsd(report.compCostCents, { compact: true })}
+          hint="clients and VIPs — excluded from acquisition"
         />
       </div>
 
-      <div className="mt-4">
-        {report.cohorts.map((c) => (
-          <CohortRow key={c.promo} c={c} />
-        ))}
-      </div>
+      {/* Grouped by PURPOSE, never one flat list. Sam's correction: these three are different
+          programmes with different success measures, and averaging them would flatter whichever
+          is worse while burying whichever is better. */}
+      {(["acquisition", "win-back", "comp"] as PromoPurpose[]).map((purpose) => {
+        const group = report.cohorts.filter((c) => c.purpose === purpose);
+        if (group.length === 0) return null;
+        return (
+          <div key={purpose} className="mt-6">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+              {PURPOSE_HEADING[purpose]}
+            </h3>
+            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+              {PURPOSE_NOTE[purpose]}
+            </p>
+            <div className="mt-2">
+              {group.map((c) => (
+                <CohortRow key={c.promo} c={c} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
 
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
         <Caveat summary="A rate is withheld until the cohort has actually been asked to pay">
@@ -182,6 +215,13 @@ export function PromoCohortPanel({ report }: { report: PromoCohortReport }) {
           Compare the <em>reached a renewal</em> counts before comparing any two rates — and
           prefer &ldquo;left without ever paying&rdquo;, which needs no renewal to have
           happened and is therefore fair on every cohort regardless of age.
+        </Caveat>
+
+        <Caveat summary="The three purposes are never averaged together">
+          A free first issue, a free year to win back a lapsed subscriber, and a lifetime comp
+          for a VIP produce identical order rows but answer different questions. The first
+          version of this page treated all four codes as one programme and reported $39,452 of
+          acquisition cost; only $34,679 of it is acquisition.
         </Caveat>
 
         <Caveat summary="Annual subscribers renew once, in November">

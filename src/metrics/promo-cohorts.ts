@@ -43,7 +43,11 @@
 
 import { sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { ACQUISITION_PROMO_SQL_REGEX } from "./acquisition-promos";
+import {
+  ALL_PROMO_SQL_REGEX,
+  promoDefinition,
+  type PromoPurpose,
+} from "./acquisition-promos";
 import { ratio } from "./formulas";
 
 /** Days allowed past a renewal date before counting it as an opportunity the customer had. */
@@ -96,6 +100,10 @@ export function gradeCohort(customers: number, matured: number): CohortGrade {
 
 export interface PromoCohort {
   promo: string;
+  /** What the code was for. Drives whether a conversion rate means anything. */
+  purpose: PromoPurpose;
+  /** Human description from the registry. */
+  label: string;
   /** Everyone who received a free issue on this code. */
   customers: number;
   firstGifted: string;
@@ -139,9 +147,18 @@ export interface PromoCohort {
 
 export interface PromoCohortReport {
   cohorts: PromoCohort[];
+  /** Every giveaway, whatever its purpose. */
   totalCostCents: number;
   totalCustomers: number;
-  /** Cohorts where nobody has reached a renewal date yet. */
+  /**
+   * Acquisition only — the figure that belongs in CAC. Excludes comps, which are a
+   * relationship cost, and win-back, which is spent on people already acquired once.
+   */
+  acquisitionCostCents: number;
+  acquisitionCustomers: number;
+  winBackCostCents: number;
+  compCostCents: number;
+  /** Cohorts where nobody has reached a renewal date yet. Comps are never counted here. */
   immatureCohorts: number;
 }
 
@@ -170,7 +187,7 @@ export async function getPromoCohorts(): Promise<PromoCohortReport> {
        WHERE o.test = false AND o.cancelled_at IS NULL
          AND o.total_amount <= 0
          AND o.order_type = 'subscription_shopify'
-         AND upper(trim(c)) ~* ${ACQUISITION_PROMO_SQL_REGEX}
+         AND upper(trim(c)) ~* ${ALL_PROMO_SQL_REGEX}
          AND o.customer_id IS NOT NULL
        GROUP BY 1, 2
     ),
@@ -229,10 +246,26 @@ export async function getPromoCohorts(): Promise<PromoCohortReport> {
     const second = Number(r.converted_second);
     const cost = Number(r.cost_cents);
 
-    const { rateable, caveat } = gradeCohort(customers, matured);
+    const def = promoDefinition(r.promo);
+    const purpose: PromoPurpose = def?.purpose ?? "acquisition";
+
+    // A comp is never graded. Its recipients were never meant to pay, so a 0% conversion
+    // rate would invent a failure from a decision that had nothing to do with revenue.
+    const graded =
+      purpose === "comp"
+        ? {
+            rateable: false,
+            caveat:
+              "Lifetime free access for clients and VIPs. These recipients are not expected " +
+              "to convert, so no rate is shown and their cost is excluded from acquisition.",
+          }
+        : gradeCohort(customers, matured);
+    const { rateable, caveat } = graded;
 
     return {
       promo: r.promo,
+      purpose,
+      label: def?.label ?? r.promo,
       customers,
       firstGifted: r.first_gifted,
       lastGifted: r.last_gifted,
@@ -254,10 +287,18 @@ export async function getPromoCohorts(): Promise<PromoCohortReport> {
     };
   });
 
+  const byPurpose = (p: PromoPurpose) => cohorts.filter((c) => c.purpose === p);
+  const sumCost = (list: PromoCohort[]) => list.reduce((n, c) => n + c.costCents, 0);
+
   return {
     cohorts,
-    totalCostCents: cohorts.reduce((s, c) => s + c.costCents, 0),
-    totalCustomers: cohorts.reduce((s, c) => s + c.customers, 0),
-    immatureCohorts: cohorts.filter((c) => c.matured === 0).length,
+    totalCostCents: sumCost(cohorts),
+    totalCustomers: cohorts.reduce((n, c) => n + c.customers, 0),
+    acquisitionCostCents: sumCost(byPurpose("acquisition")),
+    acquisitionCustomers: byPurpose("acquisition").reduce((n, c) => n + c.customers, 0),
+    winBackCostCents: sumCost(byPurpose("win-back")),
+    compCostCents: sumCost(byPurpose("comp")),
+    // Comps are excluded: they are not waiting to mature, they are never going to convert.
+    immatureCohorts: cohorts.filter((c) => c.purpose !== "comp" && c.matured === 0).length,
   };
 }
