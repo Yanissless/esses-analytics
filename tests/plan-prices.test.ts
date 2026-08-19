@@ -22,14 +22,27 @@ describe("renewalChargeCents", () => {
     expect(r.source).toBe("known-plan");
   });
 
-  it("derives from MRR for plans that bill and deliver on the same cadence", () => {
-    // Sam confirmed the quarterly plan is accurate this way: $10.26 MRR x 3 months.
+  it("uses the known list price for the quarterly plan, EX-TAX", () => {
+    // Confirmed $30.00. The observed average was $31.28 because taxed regions collect more,
+    // so an average would quietly overstate revenue the app defines as net ex-VAT.
     const r = renewalChargeCents({
       sellingPlanName: "Quarterly Subscription",
       mrrCents: 1026,
       billingIntervalCount: 3,
     });
-    expect(r.cents).toBe(3078);
+    expect(r.cents).toBe(30_00);
+    expect(r.source).toBe("known-plan");
+    // Explicitly NOT the tax-inclusive arithmetic figure.
+    expect(r.cents).not.toBe(3078);
+  });
+
+  it("derives from MRR for a plan with no confirmed price", () => {
+    const r = renewalChargeCents({
+      sellingPlanName: "Some Future Plan",
+      mrrCents: 1000,
+      billingIntervalCount: 3,
+    });
+    expect(r.cents).toBe(3000);
     expect(r.source).toBe("derived-from-mrr");
   });
 
@@ -69,11 +82,22 @@ describe("looksPrepaid", () => {
     expect(looksPrepaid(null)).toBe(false);
   });
 
-  it("every hand-entered price is for a plan it flags", () => {
-    // A price in the table for a plan that is NOT prepaid would mean the table is being used
-    // to paper over some other bug, which is worth catching here.
-    for (const name of Object.keys(PLAN_RENEWAL_PRICES)) {
-      expect(looksPrepaid(name)).toBe(true);
+  it("every known prepaid plan HAS a confirmed price", () => {
+    // The invariant runs this way round, not the other. Ordinary plans may fall back to
+    // arithmetic — slightly high where tax applies, but the right order of magnitude. For a
+    // prepaid plan arithmetic is simply wrong, off by the deliveries per billing cycle, so a
+    // prepaid plan missing from the table is a defect rather than an approximation.
+    const priced = Object.keys(PLAN_RENEWAL_PRICES);
+    for (const name of priced.filter(looksPrepaid)) {
+      expect(PLAN_RENEWAL_PRICES[name]).toBeGreaterThan(0);
+    }
+    expect(priced.some(looksPrepaid)).toBe(true);
+  });
+
+  it("holds every price as a positive whole number of cents", () => {
+    for (const [name, cents] of Object.entries(PLAN_RENEWAL_PRICES)) {
+      expect(Number.isInteger(cents), `${name} must be whole cents`).toBe(true);
+      expect(cents).toBeGreaterThan(0);
     }
   });
 });

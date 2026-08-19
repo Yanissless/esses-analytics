@@ -17,6 +17,21 @@
  * reports whether it used a known price or fell back to arithmetic, so a page can never
  * present a derived guess as if it were the real number.
  *
+ * ## These prices are EX-TAX, and that is why an average could never substitute
+ *
+ * A few regions charge sales tax on a subscription, so the amount collected there is higher
+ * than the list price. That is what pushed the observed quarterly average to $31.28 against a
+ * $30.00 list — the average was not noisy, it was measuring a different thing.
+ *
+ * Everything else in this app defines revenue as net ex-VAT (see `order_profit`), and tax is
+ * remitted to the state rather than earned, so a renewal forecast has to be ex-tax too. Mixing
+ * a tax-inclusive figure into it would overstate revenue by whatever share of the book sits in
+ * a taxed region — small, plausible, and impossible to spot later.
+ *
+ * The consequence worth remembering: `subscription_meta.mrr_amount` carries tax for those
+ * subscriptions, so any per-subscription average derived from it runs slightly high. That is a
+ * second reason this table exists.
+ *
  * ## Keeping it honest
  *
  * When a price changes in Skio, change it here. `check:deploy` does not validate these — there
@@ -29,6 +44,11 @@ export const PLAN_RENEWAL_PRICES: Record<string, number> = {
   // Confirmed by Sam, 18 Aug 2026: $100 charged once every 12 months. The quarterly orders
   // Skio queues alongside it are $0 — full prepaid discount — and must not be counted.
   "Annual Payment, Quarterly Delivery": 100_00,
+
+  // Confirmed by Sam, 18 Aug 2026: $30 per quarterly renewal, ex-tax. The observed average
+  // was $31.28 because taxed regions collect more; see the tax note above for why the list
+  // price is the right figure here rather than the average.
+  "Quarterly Subscription": 30_00,
 };
 
 export type PriceSource = "known-plan" | "derived-from-mrr" | "unknown";
@@ -63,7 +83,12 @@ export function renewalChargeCents(sub: {
 
 /**
  * True when a plan bills and delivers on different cadences, so per-delivery arithmetic
- * cannot be trusted for it.
+ * cannot be trusted for it AT ALL.
+ *
+ * The distinction matters for what a missing price means. For an ordinary plan, arithmetic is a
+ * reasonable fallback that runs slightly high where tax applies. For a prepaid plan it is
+ * simply wrong — off by the number of deliveries per billing cycle — so one of these missing
+ * from the table is a defect rather than an approximation.
  *
  * Name-based on purpose: Skio's DeliveryPolicy is what the MRR calculation already tried to
  * use and evidently did not get for these subscriptions, so relying on it again to detect the
