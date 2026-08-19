@@ -41,6 +41,16 @@ import { renewalChargeCents } from "./plan-prices";
 /** Ratio between per-issue prices beyond which the two cadences are worth questioning. */
 export const PRICE_DIVERGENCE_FACTOR = 2;
 
+/**
+ * Minimum subscriptions in a cadence before its price is compared with another's.
+ *
+ * Without it, the check fired on a SINGLE $5/month Stripe subscription against 150 quarterly
+ * ones and declared a 2x pricing anomaly. One subscription cannot establish that a cadence is
+ * mispriced — it establishes that one customer is on an unusual plan, which is not the same
+ * claim and needs no warning. Same floor as the other graded surfaces in this codebase.
+ */
+export const MIN_SUBS_FOR_DIVERGENCE = 20;
+
 export interface RenewalMonth {
   /** YYYY-MM. */
   month: string;
@@ -52,6 +62,8 @@ export interface RenewalMonth {
 }
 
 export interface CadenceBreakdown {
+  /** Which subscription system these came from. Cadences are only comparable within one. */
+  source: string;
   intervalCount: number;
   subscriptions: number;
   avgMrrCents: number;
@@ -77,11 +89,18 @@ export interface RenewalForecast {
   derivedCount: number;
   /** Subscriptions with no usable price at all. Excluded from the total. */
   unknownCount: number;
+  /**
+   * Split by subscription system, so the Skio-to-Craft migration is visible in the same place
+   * as the forecast it changes. Craft subscriptions bill through Stripe.
+   */
+  sources: Array<{ source: string; subscriptions: number; expectedChargeCents: number }>;
 }
 
 /** Flags cadences whose annualised price disagrees enough to distrust the total. */
 export function checkPriceDivergence(cadences: CadenceBreakdown[]): string | null {
-  const usable = cadences.filter((c) => c.subscriptions > 0 && c.annualisedCents > 0);
+  const usable = cadences.filter(
+    (c) => c.subscriptions >= MIN_SUBS_FOR_DIVERGENCE && c.annualisedCents > 0,
+  );
   if (usable.length < 2) return null;
 
   const lo = usable.reduce((a, b) => (b.annualisedCents < a.annualisedCents ? b : a));
@@ -104,31 +123,59 @@ export async function getRenewalForecast(monthsAhead = 12): Promise<RenewalForec
   // can derive. See metrics/plan-prices.ts for why that had to change.
   const subs = await db.execute<{
     month: string;
-    selling_plan_name: string | null;
+    source: string;
+    plan_name: string | null;
     mrr_amount: number;
-    billing_interval_count: number | null;
+    interval_months: number | null;
   }>(sql`
+    -- Both subscription systems, because the migration off Skio runs for years and a
+    -- forecast covering only one would describe a quietly shrinking share of the book while
+    -- looking complete. 220 active Stripe subscriptions were already invisible to it.
     SELECT to_char(next_billing_at, 'YYYY-MM') AS month,
-           selling_plan_name,
+           'skio'                              AS source,
+           selling_plan_name                   AS plan_name,
            mrr_amount,
-           billing_interval_count
+           billing_interval_count              AS interval_months
       FROM subscription_meta
      WHERE status = 'active'
        AND next_billing_at IS NOT NULL
        AND next_billing_at >= now()
        AND next_billing_at < now() + (${monthsAhead} || ' months')::interval
+
+    UNION ALL
+
+    SELECT to_char(current_period_end, 'YYYY-MM') AS month,
+           'stripe'                               AS source,
+           plan_nickname                          AS plan_name,
+           mrr_amount,
+           -- Stripe states its interval in the unit, not always months. A yearly plan with
+           -- interval_count 1 renews every 12 months; reading the count alone would treat it
+           -- as monthly and overstate the year's renewals twelvefold.
+           CASE lower(COALESCE(interval, 'month'))
+             WHEN 'year'  THEN COALESCE(interval_count, 1) * 12
+             WHEN 'week'  THEN GREATEST(1, (COALESCE(interval_count, 1) / 4))
+             WHEN 'day'   THEN GREATEST(1, (COALESCE(interval_count, 1) / 30))
+             ELSE COALESCE(interval_count, 1)
+           END                                    AS interval_months
+      FROM stripe_subscriptions
+     WHERE status = 'active'
+       AND current_period_end IS NOT NULL
+       AND current_period_end >= now()
+       AND current_period_end < now() + (${monthsAhead} || ' months')::interval
   `);
 
   const byMonth = new Map<string, RenewalMonth>();
-  const cadenceAgg = new Map<number, { subs: number; mrrTotal: number; chargeTotal: number }>();
+  const bySource = new Map<string, { subs: number; chargeCents: number }>();
+  // Keyed by source AND cadence, so the divergence check below never compares across systems.
+  const cadenceAgg = new Map<string, { subs: number; mrrTotal: number; chargeTotal: number }>();
   let derivedCount = 0;
   let unknownCount = 0;
 
   for (const r of subs) {
     const mrr = Number(r.mrr_amount) || 0;
-    const months = Number(r.billing_interval_count) || 1;
+    const months = Number(r.interval_months) || 1;
     const charge = renewalChargeCents({
-      sellingPlanName: r.selling_plan_name,
+      sellingPlanName: r.plan_name,
       mrrCents: mrr,
       billingIntervalCount: months,
     });
@@ -146,19 +193,28 @@ export async function getRenewalForecast(monthsAhead = 12): Promise<RenewalForec
     m.mrrSumCents += mrr;
     byMonth.set(r.month, m);
 
-    const c = cadenceAgg.get(months) ?? { subs: 0, mrrTotal: 0, chargeTotal: 0 };
+    const srcAgg = bySource.get(r.source) ?? { subs: 0, chargeCents: 0 };
+    srcAgg.subs += 1;
+    srcAgg.chargeCents += charge.cents ?? 0;
+    bySource.set(r.source, srcAgg);
+
+    const cadenceKey = `${r.source}|${months}`;
+    const c = cadenceAgg.get(cadenceKey) ?? { subs: 0, mrrTotal: 0, chargeTotal: 0 };
     c.subs += 1;
     c.mrrTotal += mrr;
     c.chargeTotal += charge.cents ?? 0;
-    cadenceAgg.set(months, c);
+    cadenceAgg.set(cadenceKey, c);
   }
 
   const months = [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
 
   const cadences: CadenceBreakdown[] = [...cadenceAgg]
-    .map(([intervalCount, c]) => {
+    .map(([key, c]) => {
+      const [source, monthsStr] = key.split("|");
+      const intervalCount = Number(monthsStr) || 1;
       const avgCharge = c.subs > 0 ? Math.round(c.chargeTotal / c.subs) : 0;
       return {
+        source,
         intervalCount,
         subscriptions: c.subs,
         avgMrrCents: c.subs > 0 ? Math.round(c.mrrTotal / c.subs) : 0,
@@ -187,8 +243,24 @@ export async function getRenewalForecast(monthsAhead = 12): Promise<RenewalForec
       biggest && totalExpectedCents > 0
         ? { month: biggest.month, share: biggest.expectedChargeCents / totalExpectedCents }
         : null,
-    priceWarning: checkPriceDivergence(cadences),
+    // Per source. Across sources it fired on a Stripe monthly plan at $60/yr against a Skio
+    // quarterly at $121.76/yr and called it a 2x anomaly — but those are different products
+    // sold through different systems, so the comparison carried no information. The check was
+    // built to catch one cadence of one product being normalised wrongly; scoping it to a
+    // source keeps that and drops the noise.
+    priceWarning:
+      [...new Set(cadences.map((c) => c.source))]
+        .map((src) => checkPriceDivergence(cadences.filter((c) => c.source === src)))
+        .filter((w): w is string => w !== null)
+        .join(" ") || null,
     derivedCount,
     unknownCount,
+    sources: [...bySource]
+      .map(([source, v]) => ({
+        source,
+        subscriptions: v.subs,
+        expectedChargeCents: v.chargeCents,
+      }))
+      .sort((a, b) => b.subscriptions - a.subscriptions),
   };
 }

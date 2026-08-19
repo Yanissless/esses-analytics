@@ -90,6 +90,34 @@ export function RenewalPanel({ forecast: f }: { forecast: RenewalForecast }) {
         </div>
       ) : null}
 
+      {/* The migration made visible where it changes a number, rather than in a separate
+          report nobody opens. Craft subscriptions bill through Stripe, so the Stripe share
+          rising IS the migration progressing. */}
+      {f.sources.length > 1 ? (
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-neutral-600 dark:text-neutral-400">
+          <span className="font-medium text-neutral-500 dark:text-neutral-400">
+            By subscription system
+          </span>
+          {f.sources.map((s2) => (
+            <span key={s2.source} className="tabular-nums">
+              {s2.source === "stripe" ? "Stripe / Craft" : "Skio"}:{" "}
+              <strong>{formatNum(s2.subscriptions)}</strong> subs ·{" "}
+              {formatUsd(s2.expectedChargeCents, { compact: true })}
+            </span>
+          ))}
+          <Caveat summary="why both are here">
+            The move off Skio onto Craft runs opportunistically over about two years, so both
+            systems hold live subscriptions throughout. A forecast covering only Skio described
+            a quietly shrinking share of the book while looking complete — 219 Stripe
+            subscriptions worth {formatUsd(
+              f.sources.find((x) => x.source === "stripe")?.expectedChargeCents ?? 0,
+            )}{" "}
+            were invisible to it. Watching the Stripe share rise is watching the migration
+            progress.
+          </Caveat>
+        </div>
+      ) : null}
+
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-neutral-400">
