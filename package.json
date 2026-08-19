@@ -31,10 +31,12 @@
     "restamp": "tsx scripts/restamp-acquisition.ts",
     "check:deploy": "tsx scripts/check-deploy.ts",
     "check:meta": "tsx scripts/check-meta.ts",
-    "check:analyst": "tsx scripts/check-analyst.ts"
+    "check:analyst": "tsx scripts/check-analyst.ts",
+    "check:ga4": "tsx scripts/check-ga4.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
+    "@google-analytics/data": "^7.0.0",
     "bcryptjs": "^3.0.3",
     "csv-parse": "^7.0.1",
     "drizzle-orm": "^0.45.2",

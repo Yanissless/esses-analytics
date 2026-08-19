@@ -68,6 +68,22 @@ const envSchema = z.object({
   // Meta Marketing API
   META_ACCESS_TOKEN: z.string().optional(),
   META_AD_ACCOUNT_ID: z.string().optional(),
+
+  /**
+   * GA4 content analytics. Two values, from two different Google consoles — see
+   * docs/ga4-setup.md, which exists because the setup spans both and each has a
+   * plausible-looking wrong answer next to the right one.
+   *
+   * GA4_PROPERTY_ID is the 9-10 digit numeric Property ID, NOT the `G-...` Measurement ID.
+   * The regex enforces that, because the two are easy to confuse and the failure GA4 returns
+   * for the wrong one does not say which mistake was made.
+   */
+  GA4_PROPERTY_ID: z
+    .string()
+    .regex(/^[0-9]{6,12}$/, "GA4_PROPERTY_ID must be the numeric Property ID, not a G-... Measurement ID")
+    .optional(),
+  /** Absolute path to the service-account JSON key. The file is a credential; keep it out of the repo. */
+  GA4_CREDENTIALS_PATH: z.string().optional(),
   // EasyShip (international DDP shipping + prepaid duties)
   EASYSHIP_API_TOKEN: z.string().optional(),
   // Mailgun (newsletter)
@@ -125,6 +141,8 @@ export const connectorConfigured = {
    * rather than an ad account, so it can run even when Meta ads is not configured.
    */
   instagram: () => Boolean(env.META_ACCESS_TOKEN),
+  /** Needs BOTH halves — a property with no key, or a key with no property, reads nothing. */
+  ga4: () => Boolean(env.GA4_PROPERTY_ID && env.GA4_CREDENTIALS_PATH),
   mailgun: () => Boolean(env.MAILGUN_API_KEY && env.MAILGUN_DOMAIN),
   slack: () => Boolean(env.SLACK_BOT_TOKEN),
   anthropic: () => Boolean(env.ANTHROPIC_API_KEY),

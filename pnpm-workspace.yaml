@@ -3,3 +3,5 @@ allowBuilds:
   unrs-resolver: true
   '@tailwindcss/oxide': true
   esbuild: true
+  # @google-analytics/data needs its postinstall to generate runtime descriptors.
+  protobufjs: true
