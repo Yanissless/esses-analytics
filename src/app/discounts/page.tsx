@@ -9,6 +9,8 @@ import {
 import { Badge, Card, Caveat, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 import { DateRangePicker } from "../_components/date-range-picker";
+import { getPromoCohorts } from "@/metrics/promo-cohorts";
+import { PromoCohortPanel } from "./promo-cohorts";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +68,13 @@ export default async function DiscountsPage({
   // Margin data, so gated on margin — not on who happens to run promotions.
   const user = await requireCapability("margin");
   const { range, compareMode, comparison, bounds } = await resolvePageRange(await searchParams);
-  const review = await getDiscountReview(range.since, range.until);
+  // Promo cohorts are deliberately NOT range-filtered: a cohort's whole point is what happened
+  // to it over time, and clipping it to the selected window would hide the renewals that are
+  // the measurement.
+  const [review, promoCohorts] = await Promise.all([
+    getDiscountReview(range.since, range.until),
+    getPromoCohorts(),
+  ]);
 
   const judged = review.codes.filter((c) => c.verdict !== "too-few");
 
@@ -140,6 +148,8 @@ export default async function DiscountsPage({
 
           <Caveat summary="CM2 boundary">{review.boundary}</Caveat>
         </div>
+
+        <PromoCohortPanel report={promoCohorts} />
 
         <Card
           title="Codes"
