@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { getRefreshState } from "@/lib/sync/auto-refresh.server";
+import { AutoRefresh } from "./auto-refresh";
 import { logout } from "../login/actions";
 import { can, type Capability, type Role } from "@/lib/auth/capabilities";
 import { Badge } from "./ui";
@@ -137,8 +139,19 @@ function GroupMenu({ group }: { group: NavGroup }) {
   );
 }
 
-export function Nav({ email, role }: { email: string; role: Role }) {
+/**
+ * Async because it carries the automatic data refresh.
+ *
+ * The refresh lives HERE rather than on each page for the same reason the link list does:
+ * every page renders Nav, so putting it here means no page can accidentally omit it. A page
+ * that forgot would silently never refresh, and nothing would report that.
+ *
+ * It costs one cheap aggregate over sync_runs per render. See lib/sync/auto-refresh.server.ts
+ * for the four gates that stop a page view turning into a sync.
+ */
+export async function Nav({ email, role }: { email: string; role: Role }) {
   const initial = email.charAt(0).toUpperCase();
+  const refresh = await getRefreshState();
 
   // Filter inside each group first, then drop groups that are left empty — otherwise a role
   // with no margin capability gets an empty "Profit" menu that opens onto nothing.
@@ -166,6 +179,11 @@ export function Nav({ email, role }: { email: string; role: Role }) {
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          <AutoRefresh
+            stale={refresh.decision.refresh}
+            inFlight={refresh.inFlight}
+            lastFinishedAt={refresh.lastFinishedAt}
+          />
           {/* The account link lives here rather than in the main nav: everyone needs it,
               but it isn't a dashboard. */}
           <Link href="/account" className="text-right hover:opacity-80">
