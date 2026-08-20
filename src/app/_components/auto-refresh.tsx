@@ -32,6 +32,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 type Phase = "idle" | "running" | "done" | "failed" | "skipped" | "signed-out";
 
@@ -110,21 +111,8 @@ export function AutoRefresh({
             ? "Session expired — reload to sign in"
             : "Couldn't update data";
 
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 text-xs ${
-        phase === "failed" || phase === "signed-out"
-          ? "text-amber-600 dark:text-amber-400"
-          : "text-neutral-500 dark:text-neutral-400"
-      }`}
-      title={
-        phase === "failed"
-          ? "The figures on screen are the last good ones — nothing has become wrong. Try UPDATE DATA, or check the sync log."
-          : lastFinishedAt
-            ? `Last completed sync: ${lastFinishedAt}`
-            : undefined
-      }
-    >
+  const body = (
+    <>
       {phase === "running" ? (
         <span
           aria-hidden
@@ -132,6 +120,35 @@ export function AutoRefresh({
         />
       ) : null}
       {text}
+    </>
+  );
+
+  const className = `inline-flex items-center gap-1.5 text-xs ${
+    phase === "failed" || phase === "signed-out"
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-neutral-500 dark:text-neutral-400"
+  }`;
+
+  // A failure is the one case with somewhere to go, so it links there. Telling someone to check
+  // the log without giving them the log is how a message ends up being decoration.
+  if (phase === "failed") {
+    return (
+      <Link
+        href="/data"
+        className={`${className} underline decoration-dotted underline-offset-2 hover:opacity-80`}
+        title="The figures on screen are the last good ones — nothing has become wrong. Open the run log to see what failed."
+      >
+        {body}
+      </Link>
+    );
+  }
+
+  return (
+    <span
+      className={className}
+      title={lastFinishedAt ? `Last completed sync: ${lastFinishedAt}` : undefined}
+    >
+      {body}
     </span>
   );
 }

@@ -56,7 +56,15 @@ const GROUPS: NavGroup[] = [
   // No capability: every role may ask questions. What differs is the toolset the agent
   // is given, which is derived from this same map — see lib/ai/tools.server.ts.
   { label: "Ask", links: [{ href: "/ask", label: "Ask", capability: undefined }] },
-  { label: "Overview", links: [{ href: "/", label: "Overview", capability: "revenue" }] },
+  {
+    label: "Overview",
+    links: [
+      { href: "/", label: "Overview", capability: "revenue" },
+      // No capability. Everyone reading a number needs to know how old it is, and gating this
+      // would let a viewer trust a figure an admin could see was three days stale.
+      { href: "/data", label: "Data updates", capability: undefined },
+    ],
+  },
   {
     label: "Marketing",
     links: [
