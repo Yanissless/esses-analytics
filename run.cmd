@@ -36,6 +36,7 @@ if "%~1"=="" (
   echo   backfill         load history  --since=2025-10-01 --source=shopify
   echo   sync             incremental catch-up, all sources
   echo   metrics          rebuild order_profit + daily_metrics
+  echo   validate         check live data against its invariants
   echo   review           flagged-order review queue
   echo   test / lint / build / start / dev
   echo.

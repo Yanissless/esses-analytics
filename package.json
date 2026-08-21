@@ -32,7 +32,8 @@
     "check:deploy": "tsx scripts/check-deploy.ts",
     "check:meta": "tsx scripts/check-meta.ts",
     "check:analyst": "tsx scripts/check-analyst.ts",
-    "check:ga4": "tsx scripts/check-ga4.ts"
+    "check:ga4": "tsx scripts/check-ga4.ts",
+    "validate": "tsx scripts/validate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

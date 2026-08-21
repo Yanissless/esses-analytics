@@ -8,6 +8,7 @@ import {
   RELIABILITY_WINDOW,
   STANDING_MIN_RUNS,
 } from "@/lib/sync/sync-log.server";
+import { runValidation, type Severity } from "@/lib/validate/checks";
 import { Badge, Card, InfoTip, Stat, formatNum } from "../_components/ui";
 import { Nav } from "../_components/nav";
 
@@ -31,6 +32,11 @@ function when(iso: string | null): string {
     : d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 }
 
+/** Failures first when sorting the check list. */
+const SEVERITY_ORDER: Record<Severity, number> = { error: 0, warn: 1, skip: 2, ok: 3 };
+
+const SEVERITY_MARK: Record<Severity, string> = { error: "✗", warn: "!", skip: "–", ok: "✓" };
+
 function StatusBadge({ status }: { status: string | null }) {
   if (!status) return <span className="text-neutral-400">—</span>;
   // `partial` is deliberately amber and not green. It means the run completed and something was
@@ -51,11 +57,14 @@ function StatusBadge({ status }: { status: string | null }) {
 export default async function DataPage() {
   const user = await requireUser();
 
-  const [refresh, freshness, reliability, runs] = await Promise.all([
+  const [refresh, freshness, reliability, runs, validation] = await Promise.all([
     getRefreshState(),
     getSourceFreshness(),
     getReliability(),
     getRecentRuns(60),
+    // ~200ms of aggregates. Worth it on this page specifically: a check that only runs when
+    // someone remembers to open a terminal is a check that reports a problem weeks late.
+    runValidation(),
   ]);
 
   const decision = refresh.decision;
@@ -98,6 +107,83 @@ export default async function DataPage() {
             hint={`older than ${STALE_AFTER_HOURS}h`}
           />
         </div>
+
+        <Card
+          title="Data checks"
+          subtitle={
+            validation.errors > 0
+              ? `${validation.errors} check(s) failing — a number somewhere is wrong right now.`
+              : validation.warnings > 0
+                ? `No errors. ${validation.warnings} warning(s) worth reading.`
+                : `All ${validation.results.length} checks pass.`
+          }
+          info={
+            "Invariants asserted against the live data, not against mocked test data. Every " +
+            "silent data bug this app has had passed its unit tests — the logic was right and " +
+            "the data had drifted underneath it, which is a relationship between modules that a " +
+            "unit test cannot see. Each check is tied to a failure that actually happened."
+          }
+          action={
+            <span
+              className={`rounded-md px-2 py-0.5 text-xs font-medium ${
+                validation.errors > 0
+                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-400"
+                  : validation.warnings > 0
+                    ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+                    : "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+              }`}
+            >
+              {validation.results.length -
+                validation.errors -
+                validation.warnings -
+                validation.skipped}
+              /{validation.results.length} passing
+            </span>
+          }
+        >
+          <ul className="space-y-2">
+            {/* Failures first. A red line below nine green ones is a red line nobody sees. */}
+            {[...validation.results]
+              .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+              .map((r) => (
+                <li key={r.name} className="flex gap-2 text-sm">
+                  <span
+                    aria-hidden
+                    className={`mt-0.5 shrink-0 font-mono text-xs ${
+                      r.severity === "error"
+                        ? "text-rose-600 dark:text-rose-400"
+                        : r.severity === "warn"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : r.severity === "skip"
+                            ? "text-neutral-400"
+                            : "text-emerald-600 dark:text-emerald-500"
+                    }`}
+                  >
+                    {SEVERITY_MARK[r.severity]}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="font-medium">{r.name}</span>
+                    <InfoTip label="What this check guards against" width="28rem">
+                      {r.guards}
+                    </InfoTip>
+                    <div className="text-xs text-neutral-500 dark:text-neutral-400">
+                      {r.detail}
+                    </div>
+                    {r.remedy && r.severity !== "ok" ? (
+                      <div className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-300">
+                        → {r.remedy}
+                      </div>
+                    ) : null}
+                  </span>
+                </li>
+              ))}
+          </ul>
+          <p className="mt-3 text-xs text-neutral-500">
+            Read-only, {validation.ms}ms. Also available as{" "}
+            <code className="text-xs">run.cmd validate</code>, which exits non-zero on an error so
+            it can gate a deploy.
+          </p>
+        </Card>
 
         <Card
           title="How the updating works"
