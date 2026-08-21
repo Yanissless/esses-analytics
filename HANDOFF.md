@@ -17,7 +17,7 @@
 > - **§5.2 "Meta access is blocked at the APP level"** — resolved. Meta ads and Instagram
 >   both sync live. Instagram holds 44,048 followers with 38 days of history.
 > - **§5.2b "Not yet built: the Instagram connector"** — built (`src/connectors/instagram/`).
-> - **§8 verification stamp: "218 tests, 17 routes"** — now **478 tests, 26 routes**.
+> - **§8 verification stamp: "218 tests, 17 routes"** — now **478 tests, 28 routes**.
 > - **Every headline number in §8** — restated at the foot of `START-HERE.md`. Revenue
 >   $187,955, MER 5.16×, CM3 38.9%.
 > - **"Phases 1–9 built"** — phase 10 (the validation pass) is now built too;

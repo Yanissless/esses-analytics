@@ -58,7 +58,8 @@ external blockers.
 validation pass. Phase 11 (advertiser delivery reporting) is the only one outstanding.
 
 - **478 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
-  unused-import warnings) · `build` clean across **26 routes**
+  unused-import warnings) · `build` clean across **28 routes** (the number `run.cmd build`
+  prints, which includes `/_not-found`)
 - Running against live data (2025-10-01 → 2026-08-20): 10,477 countable orders, $187,955
   net revenue, MER 5.16×. Full figures with their caveats at the foot of this file.
 - **`run.cmd validate`** asserts 11 invariants against the live data and exits non-zero on
