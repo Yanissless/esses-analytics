@@ -83,10 +83,12 @@ filters correctly; the trap is new ad-hoc queries. There is now a check for it.
 `/ask` · `/account` · `/login` · `/api/health` · `/api/sync` · `/api/refresh` ·
 `/api/ai/ask` · `/api/creative-image/[adId]`
 
-The nav groups these into six dropdowns. Sixteen flat links overflowed the header and put
+The nav groups these into seven items — five dropdowns plus Ask and Forecast as plain links. Sixteen flat links overflowed the header and put
 a horizontal scrollbar on the whole document — which appears at the very bottom of the
 page, miles from the nav that caused it. Grouping is also a claim about what belongs
-together: Social, Creatives, Audience, Journeys and Content are five views of one question.
+together: Social, Creatives, Audience, Attribution coverage and Content are five views of
+one question. Costs, Shipping and Team sit under **Settings** — they are places you go to
+*enter* something, not to read something.
 
 **`/data`** — whether the data is actually current, and whether the updating works. Carries
 the sync run log, per-source reliability over the last 20 runs, and the 11 validation
