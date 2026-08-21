@@ -73,6 +73,7 @@ const GROUPS: NavGroup[] = [
       { href: "/social", label: "Social", capability: "marketing" },
       { href: "/audience", label: "Audience growth", capability: "marketing" },
       { href: "/journeys", label: "Journeys", capability: "marketing" },
+      { href: "/content", label: "Content & readership", capability: "marketing" },
     ],
   },
   {

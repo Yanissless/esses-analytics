@@ -17,10 +17,18 @@ import { skioConnector } from "../../connectors/skio";
 import { stripeConnector } from "../../connectors/stripe";
 import { AD_PLATFORMS, asConnector } from "../../connectors/ads";
 import { syncInstagramAudience, syncInstagramInsights } from "../../connectors/instagram/ingest";
+import { ga4Connector } from "../../connectors/ga4";
 import { rebuildDailyMetrics } from "../../metrics/rollup";
 import type { Connector } from "../../connectors/types";
 
-export const ALL_SYNC_SOURCES = ["shopify", "skio", "stripe", "ads", "instagram"] as const;
+export const ALL_SYNC_SOURCES = [
+  "shopify",
+  "skio",
+  "stripe",
+  "ads",
+  "instagram",
+  "ga4",
+] as const;
 
 export interface SourceResult {
   source: string;
@@ -193,6 +201,17 @@ export async function runSync(
    */
   if (sources.includes("instagram")) {
     results.push(await runInstagram(connectorConfigured.instagram()));
+  }
+
+  /**
+   * GA4 last, and harmless when it fails.
+   *
+   * Content metrics feed no revenue, margin or attribution figure — nothing else in the app
+   * reads this table. A GA4 outage therefore costs a traffic chart and nothing more, which is
+   * why it sits after the sources that money depends on.
+   */
+  if (sources.includes("ga4")) {
+    results.push(await runIncremental(ga4Connector, ga4Connector.isConfigured(), full.has("ga4")));
   }
 
   let metricsDays: number | null = null;

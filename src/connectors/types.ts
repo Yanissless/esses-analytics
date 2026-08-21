@@ -22,6 +22,8 @@ export type ConnectorSource =
   /** Instagram organic audience — distinct from "meta", which is paid ads. */
   | "instagram"
   | "google_ads"
+  /** GA4 content metrics — web traffic by page. Deliberately not an attribution source. */
+  | "ga4"
   | "mailgun"
   | "onsite";
 
