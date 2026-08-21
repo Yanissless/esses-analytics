@@ -13,7 +13,7 @@
  */
 
 import type { SourceFreshness } from "@/lib/freshness.server";
-import { STALE_AFTER_HOURS } from "@/lib/freshness.server";
+import { STALE_AFTER_HOURS, staleSummary } from "@/lib/freshness.server";
 
 export function FreshnessBanner({
   freshness,
@@ -47,16 +47,15 @@ export function FreshnessBanner({
         </div>
       ))}
 
-      {stale.map((f) => (
-        <div key={`stale-${f.source}`}>
-          <strong>
-            {f.source} last synced{" "}
-            {f.ageHours === null ? "never" : `${Math.round(f.ageHours)}h ago`}.
-          </strong>{" "}
-          Anything past {STALE_AFTER_HOURS}h is flagged because a day fetched mid-flight is
-          stored as a whole one. Run <code className="text-xs">run.cmd sync</code>.
+      {/* One line covering every stale source, explanation given once. The wording lives in
+          `staleSummary` so it can be unit-tested — see the note there. */}
+      {stale.length > 0 ? (
+        <div>
+          <strong>{staleSummary(stale)}</strong> Anything past {STALE_AFTER_HOURS}h is flagged
+          because a day fetched mid-flight is stored as a whole one. Run{" "}
+          <code className="text-xs">run.cmd sync</code>.
         </div>
-      ))}
+      ) : null}
 
       {provisional.length > 0 ? (
         <div className={serious ? "mt-1.5 text-xs" : ""}>

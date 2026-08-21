@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { goals } from "@/db/schema";
@@ -273,12 +274,25 @@ export default async function ForecastPage() {
           <Card
             title={`Targets for ${periodStart}`}
             subtitle="Money targets are entered in dollars. Leaving a field blank clears that target, which is different from setting it to zero."
+            /* The planner used to be a second nav entry, which made "set a target" two doors
+               with nothing to tell you which one you wanted. It belongs here instead: this is
+               the moment you are deciding what a target should be, and a year is easier to
+               reason about than one month in isolation — a flat twelfth ignores that revenue
+               arrives in issue-release spikes. */
+            action={
+              <Link
+                href="/goals"
+                className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                Plan a whole year →
+              </Link>
+            }
           >
             <GoalForm periodStart={periodStart} existing={existing} />
           </Card>
         ) : (
           <p className="pb-4 text-xs text-neutral-500">
-            Targets are set by an admin under Forecast &amp; goals.
+            Targets are set by an admin on this page.
           </p>
         )}
       </main>

@@ -100,7 +100,10 @@ export default async function JourneysPage({
       <Nav email={user.email} role={user.role} />
       <main className="mx-auto max-w-4xl px-6 py-8">
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">Journeys</h1>
+          {/* Titled to match the nav, and to match what the page is. "Journeys" promised a
+              path explorer this deliberately isn't — 71% of countable orders have no
+              non-internal touchpoint at all, so the honest subject is coverage. */}
+          <h1 className="text-2xl font-semibold tracking-tight">Attribution coverage</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
             What attribution can and cannot see · {range.label}
           </p>

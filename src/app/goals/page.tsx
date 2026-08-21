@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { requireCapability } from "@/lib/auth/current-user";
@@ -85,7 +86,16 @@ export default async function GoalsPage({
       <Nav email={user.email} role={user.role} />
       <main className="mx-auto max-w-5xl space-y-6 px-6 py-8">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Goal planner</h1>
+          {/* This page is no longer in the nav — it is reached from the targets card on
+              /forecast, so it needs a way back. A page with no route out is a dead end even
+              when the back button works, because it gives no clue where it sits. */}
+          <Link
+            href="/forecast"
+            className="text-xs text-neutral-500 underline decoration-dotted underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
+          >
+            ← Forecast &amp; goals
+          </Link>
+          <h1 className="mt-1 text-xl font-semibold tracking-tight">Goal planner</h1>
           <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
             Model a year and see the monthly shape before committing to it. Nothing is saved
             until you press save.

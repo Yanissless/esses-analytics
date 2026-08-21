@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getRefreshState } from "@/lib/sync/auto-refresh.server";
 import { AutoRefresh } from "./auto-refresh";
+import { NavMenus } from "./nav-menus";
 import { logout } from "../login/actions";
 import { can, type Capability, type Role } from "@/lib/auth/capabilities";
 import { Badge } from "./ui";
@@ -24,19 +25,31 @@ import { Badge } from "./ui";
  * in the app — the worst kind of layout bug, because the thing that scrolls is the document,
  * so it appears at the very bottom, miles from the nav that caused it.
  *
- * Grouping to six top-level items is not just a width fix. A flat list of sixteen gives no
- * hint that Social, Creatives, Audience and Journeys are four views of one question; the
- * groups say what belongs with what.
+ * Grouping is not just a width fix. A flat list of sixteen gives no hint that Social,
+ * Creatives, Audience, Journeys and Content are five views of one question; the groups say
+ * what belongs with what.
  *
- * ## Why `<details>` and not a JS menu
+ * ## How the groups are decided
  *
- * Same reasoning as the campaign drill-down on `/creatives`: no JavaScript means it cannot
- * break on hydration, and `<details>`/`<summary>` is keyboard-operable and screen-reader
- * announced for free. A hover-only CSS menu would be neither — `visibility: hidden` takes its
- * links out of the tab order, so a keyboard user could never reach them.
+ * By what a person is trying to do, not by which table the data lives in. Two consequences
+ * that were previously wrong:
  *
- * The trade-off is that a menu stays open until dismissed. For an internal tool that is worth
- * the robustness.
+ * **Costs, Shipping and Team are settings, not analysis.** They are places you go to *enter*
+ * something. Team in particular sat under "Forecast", which is simply a filing error — it is
+ * there because Forecast happened to be the last group when Team was added.
+ *
+ * **One door per job.** "Forecast & goals" and "Goal planner" were two nav entries for setting
+ * the same targets, which forces a choice nobody has the information to make. Forecast is now
+ * the single entry, and it links to the planner where targets are actually being set. The
+ * planner keeps its own route rather than being merged in, because its whole design is that
+ * the URL *is* the plan — bookmark a scenario, open two tabs to compare, paste one to someone
+ * else. Folding it into a page that owns different search params would break that.
+ *
+ * ## Menu behaviour lives in `nav-menus.tsx`
+ *
+ * This component decides *what* is in the nav; that one handles opening and closing. It is a
+ * Client Component because the previous `<details>`-based version left every menu you opened
+ * hanging open, and they overlap into an unreadable stack. See the note there.
  */
 
 interface NavLink {
@@ -46,7 +59,7 @@ interface NavLink {
 }
 
 interface NavGroup {
-  /** Shown on the summary. */
+  /** Shown on the menu button. */
   label: string;
   /** A group with one link renders as a plain link — no menu around a single item. */
   links: NavLink[];
@@ -70,9 +83,12 @@ const GROUPS: NavGroup[] = [
     links: [
       { href: "/marketing", label: "Overview", capability: "marketing" },
       { href: "/creatives", label: "Campaigns & creatives", capability: "marketing" },
+      { href: "/journeys", label: "Attribution coverage", capability: "marketing" },
+      // The three organic/owned-audience views, kept adjacent. "Journeys" was renamed
+      // because the page is a coverage report — what attribution can and cannot see — and
+      // the old name promised a path explorer it deliberately isn't.
       { href: "/social", label: "Social", capability: "marketing" },
       { href: "/audience", label: "Audience growth", capability: "marketing" },
-      { href: "/journeys", label: "Journeys", capability: "marketing" },
       { href: "/content", label: "Content & readership", capability: "marketing" },
     ],
   },
@@ -90,63 +106,25 @@ const GROUPS: NavGroup[] = [
       { href: "/profit", label: "Profit", capability: "margin" },
       { href: "/discounts", label: "Discount codes", capability: "margin" },
       { href: "/international", label: "International margin", capability: "margin" },
-      { href: "/costs", label: "Costs", capability: "settings" },
-      { href: "/shipping", label: "Shipping", capability: "settings" },
     ],
   },
+  // One entry, not two. The goal planner is reached from the targets card on /forecast,
+  // where you are already deciding what a target should be — see the note at the top.
   {
     label: "Forecast",
+    links: [{ href: "/forecast", label: "Forecast & goals", capability: "revenue" }],
+  },
+  // Places you go to enter something rather than to read something. Team was filed under
+  // Forecast, which was an accident of when it was added rather than a decision.
+  {
+    label: "Settings",
     links: [
-      { href: "/forecast", label: "Forecast & goals", capability: "revenue" },
-      { href: "/goals", label: "Goal planner", capability: "revenue" },
-      { href: "/team", label: "Team", capability: "team" },
+      { href: "/costs", label: "Costs & COGS", capability: "settings" },
+      { href: "/shipping", label: "Shipping costs", capability: "settings" },
+      { href: "/team", label: "Team & access", capability: "team" },
     ],
   },
 ];
-
-const ITEM_CLASS =
-  "rounded-lg px-2.5 py-1.5 text-sm text-neutral-600 transition hover:bg-neutral-100 " +
-  "hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 " +
-  "dark:hover:text-neutral-100";
-
-function GroupMenu({ group }: { group: NavGroup }) {
-  // Single-link groups render bare. A disclosure triangle around one item is friction with
-  // nothing behind it, and it happens naturally whenever a role can see only one page in a
-  // group — so this is a real case, not a stylistic one.
-  if (group.links.length === 1) {
-    return (
-      <Link href={group.links[0].href} className={ITEM_CLASS}>
-        {group.label}
-      </Link>
-    );
-  }
-
-  return (
-    <details className="relative">
-      <summary
-        className={`${ITEM_CLASS} cursor-pointer list-none whitespace-nowrap marker:content-none`}
-      >
-        {group.label}
-        <span aria-hidden className="ml-1 text-[10px] text-neutral-400">
-          ▾
-        </span>
-      </summary>
-      {/* Absolutely positioned so opening a menu doesn't reflow the header and shove the
-          page content down — which is what made the original overflow so disorienting. */}
-      <div className="absolute left-0 top-full z-20 mt-1 min-w-[14rem] rounded-xl border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
-        {group.links.map((l) => (
-          <Link
-            key={l.href}
-            href={l.href}
-            className="block rounded-lg px-3 py-2 text-sm text-neutral-700 transition hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          >
-            {l.label}
-          </Link>
-        ))}
-      </div>
-    </details>
-  );
-}
 
 /**
  * Async because it carries the automatic data refresh.
@@ -179,13 +157,15 @@ export async function Nav({ email, role }: { email: string; role: Role }) {
                 in favour of this component — see the note at the top of the file. */}
             <Badge>internal</Badge>
           </span>
-          {/* flex-wrap is a backstop: if this ever outgrows the header again it wraps to a
-              second line instead of putting a scrollbar on the whole document. */}
-          <nav className="flex flex-wrap items-center gap-1">
-            {visible.map((g) => (
-              <GroupMenu key={g.label} group={g} />
-            ))}
-          </nav>
+          {/* The capability filter runs here, on the server, so a link a role cannot follow
+              never reaches the browser. NavMenus receives only the labels and hrefs it should
+              render — the capability values are deliberately not serialised to the client. */}
+          <NavMenus
+            groups={visible.map((g) => ({
+              label: g.label,
+              links: g.links.map((l) => ({ href: l.href, label: l.label })),
+            }))}
+          />
         </div>
         <div className="flex items-center gap-3">
           <AutoRefresh

@@ -111,6 +111,38 @@ export async function getSourceFreshness(): Promise<SourceFreshness[]> {
 }
 
 /**
+ * The stale-source sentence for the banner.
+ *
+ * Pure and exported so it can be tested. The multi-source wording only appears while two
+ * sources are behind at once — precisely the state a working auto-refresh removes — so it is
+ * close to impossible to observe deliberately in a browser.
+ *
+ * One sentence covering all of them, because the banner used to render a paragraph per source,
+ * each repeating "…is flagged because a day fetched mid-flight is stored as a whole one. Run
+ * run.cmd sync." With Meta and Shopify both 27h behind it printed that twice and read like a
+ * rendering bug. The source names differ; the reason and the remedy never do.
+ */
+export function staleSummary(stale: SourceFreshness[]): string {
+  if (stale.length === 0) return "";
+
+  if (stale.length === 1) {
+    const f = stale[0];
+    return f.ageHours === null
+      ? `${f.source} has never synced.`
+      : `${f.source} last synced ${Math.round(f.ageHours)}h ago.`;
+  }
+
+  // Oldest first, never-synced worst of all: if only the first name gets read, it should be
+  // the one most worth knowing about.
+  const ordered = [...stale].sort(
+    (a, b) => (b.ageHours ?? Infinity) - (a.ageHours ?? Infinity),
+  );
+  return `${ordered.length} sources are behind — ${ordered
+    .map((f) => `${f.source} ${f.ageHours === null ? "never synced" : `${Math.round(f.ageHours)}h`}`)
+    .join(", ")}.`;
+}
+
+/**
  * One-line summary for a page header.
  *
  * Names the worst offender rather than averaging: "some data is 40 hours old" is not
