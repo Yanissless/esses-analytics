@@ -57,7 +57,7 @@ external blockers.
 **Phases 1–10 of 11 are built.** Every major dashboard from the brief exists, plus the
 validation pass. Phase 11 (advertiser delivery reporting) is the only one outstanding.
 
-- **478 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
+- **485 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
   unused-import warnings) · `build` clean across **28 routes** (the number `run.cmd build`
   prints, which includes `/_not-found`)
 - Running against live data (2025-10-01 → 2026-08-20): 10,477 countable orders, $187,955
@@ -83,9 +83,9 @@ filters correctly; the trap is new ad-hoc queries. There is now a check for it.
 `/ask` · `/account` · `/login` · `/api/health` · `/api/sync` · `/api/refresh` ·
 `/api/ai/ask` · `/api/creative-image/[adId]`
 
-The nav groups these into seven items — five dropdowns plus Ask and Forecast as plain links. Sixteen flat links overflowed the header and put
-a horizontal scrollbar on the whole document — which appears at the very bottom of the
-page, miles from the nav that caused it. Grouping is also a claim about what belongs
+The nav groups these into seven items — five dropdowns, plus Ask and Forecast as plain
+links. Sixteen flat links overflowed the header and put a horizontal scrollbar on the whole
+document, which appears at the very bottom of the page, miles from the nav that caused it. Grouping is also a claim about what belongs
 together: Social, Creatives, Audience, Attribution coverage and Content are five views of
 one question. Costs, Shipping and Team sit under **Settings** — they are places you go to
 *enter* something, not to read something.
@@ -124,7 +124,7 @@ profile, and an audience-versus-orders geography table. Correlates on **daily** 
 while there are too few weeks for a weekly read; it switches to weekly automatically at 12
 points and always shows both bases.
 
-**`/journeys`** — what attribution can and cannot see. A coverage page, deliberately not a
+**`/journeys`** — titled **Attribution coverage**; what attribution can and cannot see. A coverage page, deliberately not a
 path explorer: 71% of countable orders have no non-internal touchpoint (mostly API
 renewals and comps, which no tagging recovers), 23% are a single session, and 5.6% are
 multi-touch. Where a journey is one session all four attribution models agree by
