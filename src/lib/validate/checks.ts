@@ -173,6 +173,13 @@ const CHECKS: Check[] = [
                  min(date)                                AS d0,
                  max(date)                                AS d1
             FROM daily_metrics
+            -- The blended row ONLY. daily_metrics is grained (date, channel) with NULL meaning
+            -- blended, so an unfiltered sum adds the per-channel rows on top of the blend. The
+            -- first version of this check omitted this line and still reported a $0.00 gap,
+            -- because revenue happens to be written only to the blended row while ad spend is
+            -- written to both — so it passed for the wrong reason and would have started lying
+            -- the moment a channel row carried revenue. See the channel-grain check below.
+           WHERE channel IS NULL
         ),
         o AS (
           SELECT COALESCE(sum(net_ex_vat_amount), 0)::bigint AS shopify
@@ -217,6 +224,77 @@ const CHECKS: Check[] = [
         detail:
           `rollup ${money(rollup)} = Shopify ${money(shopify)} + Stripe ${money(stripe)} ` +
           `over ${n(r?.days)} days (gap ${money(gap)}, within rounding)`,
+      };
+    },
+  },
+
+  {
+    name: "daily_metrics channel rows stay within the blended row",
+    guards:
+      "daily_metrics is grained (date, channel) where NULL means blended, so any sum that " +
+      "forgets to filter channel IS NULL double-counts. That is not hypothetical: the first " +
+      "version of the revenue check above forgot it, and reported a $0.00 gap anyway — passing " +
+      "for the wrong reason — because revenue is written only to the blended row while ad " +
+      "spend is written to both. A naive sum of this table reads ad spend at roughly 2× and " +
+      "halves MER.",
+    run: async () => {
+      const r = await one<{
+        rows: number;
+        dates: number;
+        blended: number;
+        bad_spend: number;
+        channel_revenue: number;
+      }>(sql`
+        WITH per_day AS (
+          SELECT date,
+                 COALESCE(sum(ad_spend_amount) FILTER (WHERE channel IS NULL), 0)     AS blended_spend,
+                 COALESCE(sum(ad_spend_amount) FILTER (WHERE channel IS NOT NULL), 0) AS channel_spend,
+                 COALESCE(sum(revenue_amount)  FILTER (WHERE channel IS NOT NULL), 0) AS channel_rev
+            FROM daily_metrics
+           GROUP BY date
+        )
+        SELECT (SELECT count(*) FROM daily_metrics)::int                        AS rows,
+               (SELECT count(DISTINCT date) FROM daily_metrics)::int            AS dates,
+               (SELECT count(*) FROM daily_metrics WHERE channel IS NULL)::int  AS blended,
+               -- Per-channel spend above the blended figure would mean the split invented
+               -- money rather than dividing it.
+               count(*) FILTER (WHERE channel_spend > blended_spend)::int        AS bad_spend,
+               count(*) FILTER (WHERE channel_rev > 0)::int                      AS channel_revenue
+          FROM per_day
+      `);
+
+      const rows = n(r?.rows);
+      if (rows === 0) return { severity: "skip", detail: "daily_metrics is empty" };
+
+      if (n(r?.bad_spend) > 0) {
+        return {
+          severity: "error",
+          detail: `${n(r?.bad_spend)} day(s) where per-channel spend exceeds the blended row`,
+          remedy:
+            "The channel split is inventing spend rather than dividing it. Compare the two " +
+            "INSERT statements in metrics/rollup.ts — the blended write and the per-channel " +
+            "write — then run.cmd metrics.",
+        };
+      }
+
+      // Not an error: revenue on a channel row would be a legitimate design change. But it
+      // would silently break every unfiltered sum, so it must be noticed the day it happens.
+      if (n(r?.channel_revenue) > 0) {
+        return {
+          severity: "warn",
+          detail: `${n(r?.channel_revenue)} day(s) carry revenue on a per-channel row`,
+          remedy:
+            "Today only the blended row carries revenue. If that changed deliberately, audit " +
+            "every sum over daily_metrics for a missing `channel IS NULL` — the revenue check " +
+            "above depends on this being true.",
+        };
+      }
+
+      return {
+        severity: "ok",
+        detail:
+          `${rows} rows over ${n(r?.dates)} date(s), ${n(r?.blended)} blended; ` +
+          `channel spend within the blend, no revenue on channel rows`,
       };
     },
   },
