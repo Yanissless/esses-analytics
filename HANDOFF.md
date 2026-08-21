@@ -8,12 +8,34 @@
 > (On Windows `handoff.md` and `HANDOFF.md` are the same file — don't create a lowercase
 > one, it overwrites this.)
 
+> ## ⚠️ Corrections as of 21 Aug 2026 — read before trusting anything below
+>
+> This archive is accurate about *why* things were done and increasingly stale about *what
+> is true now*. `START-HERE.md` is current; these are the specific claims below that have
+> since been overtaken, listed so a stale line reads as history rather than as fact:
+>
+> - **§5.2 "Meta access is blocked at the APP level"** — resolved. Meta ads and Instagram
+>   both sync live. Instagram holds 44,048 followers with 38 days of history.
+> - **§5.2b "Not yet built: the Instagram connector"** — built (`src/connectors/instagram/`).
+> - **§8 verification stamp: "218 tests, 17 routes"** — now **478 tests, 26 routes**.
+> - **Every headline number in §8** — restated at the foot of `START-HERE.md`. Revenue
+>   $187,955, MER 5.16×, CM3 38.9%.
+> - **"Phases 1–9 built"** — phase 10 (the validation pass) is now built too;
+>   `run.cmd validate` checks 11 invariants against live data. Phase 11 is outstanding.
+> - **Revenue classes changed.** `acquisition_gift` and `comp` are now distinct, defined
+>   once in `metrics/revenue-class.ts`. Anything below describing a two-way paid/free split
+>   predates that.
+> - **§3 "rate-rule matching SQL is duplicated in FOUR places"** — consolidated into
+>   `lib/shipping/rate-rules.ts` (§4.12).
+>
+> Nothing below has been deleted. The reasoning is still worth reading; the numbers are not.
+
 **Last updated:** 2026-08-11 (session 9) · earlier header text below is from session 8
 **Project root:** `C:\Users\samwi\esses-analytics`
-**Status:** Phases 1–9 built. Marketing/reconciliation, Churn & cohorts, Social,
-Personas and Forecast & goals, with a live margin-boundary setting and COGS
-sensitivity/coverage. 218 tests pass, typecheck + lint + build clean, all 17 routes
-render against live data. Git baseline exists (§4.9).
+**Status:** ⚠️ superseded — see the corrections block above. Phases 1–9 built.
+Marketing/reconciliation, Churn & cohorts, Social, Personas and Forecast & goals, with a
+live margin-boundary setting and COGS sensitivity/coverage. 218 tests pass, typecheck +
+lint + build clean, all 17 routes render against live data. Git baseline exists (§4.9).
 
 **Every major dashboard from the brief now exists**, and the app is
 **deployment-ready** — team management, a scheduled-sync endpoint and `DEPLOY.md` all
@@ -23,8 +45,9 @@ advertiser reporting, and AI insights + the Slack digest.
 📄 **To put a live instance up, follow `DEPLOY.md`.** Nothing in it needs a code change —
 it needs a managed Postgres, a Vercel project, DNS, and the secrets pasted in.
 
-⚠️ **Read §5.2 before touching Meta.** Access is blocked at the APP level — a new
-token will not fix it. Sam is working on the unblock.
+⚠️ ~~**Read §5.2 before touching Meta.** Access is blocked at the APP level — a new
+token will not fix it. Sam is working on the unblock.~~ **Resolved.** Meta ads and
+Instagram both sync live. §5.2 is kept for the diagnostic reasoning only.
 
 ---
 

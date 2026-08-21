@@ -1,7 +1,7 @@
 # START HERE — session handoff
 
-**Written:** 11 August 2026 · supersedes the 6 August version of this file
-**From:** Sam's build sessions (9 of them, all on Windows)
+**Written:** 21 August 2026 · supersedes the 11 August version of this file
+**From:** Sam's build sessions (all on Windows)
 **To:** the next Claude Code session — Sam's, or **Johnny's on his Mac**
 **Commit this describes:** the head of `master`, working tree clean — `git log -1`
 (chasing its own hash in this line only ever produces a stale one)
@@ -54,23 +54,58 @@ external blockers.
 
 ## 2. Current state of the code
 
-**Phases 1–9 of 11 are built.** Every major dashboard from the brief exists.
+**Phases 1–10 of 11 are built.** Every major dashboard from the brief exists, plus the
+validation pass. Phase 11 (advertiser delivery reporting) is the only one outstanding.
 
-- **274 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
-  unused-import warnings) · `build` clean across **21 routes**
-- Running against live data (2025-10-01 → 2026-08-12): 7,895 countable orders, $155,062 net
-  revenue, MER 4.61x. Full figures with their caveats at the foot of this file.
-- Git: **~30 commits on `master`**, working tree clean, **no remote yet** — that's Part 1
+- **478 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
+  unused-import warnings) · `build` clean across **26 routes**
+- Running against live data (2025-10-01 → 2026-08-20): 10,477 countable orders, $187,955
+  net revenue, MER 5.16×. Full figures with their caveats at the foot of this file.
+- **`run.cmd validate`** asserts 11 invariants against the live data and exits non-zero on
+  an error, so it can gate a deploy. Same results on `/data`. Run it before quoting a
+  figure to anyone outside the team.
+- Git: **68 commits on `master`**, working tree clean, **no remote yet** — that's Part 1
   of `DEPLOY.md`. The history is worth reading; each message explains *why*, not what.
 - Stack: Next.js 16 App Router (`middleware` is now `proxy.ts`) · TypeScript · Tailwind v4
   · Drizzle + Postgres 17 · Vitest · pnpm
 
+⚠️ **`daily_metrics` is grained `(date, channel)` where `channel IS NULL` means blended.**
+Every sum over it must filter on that. Forgetting reads ad spend at roughly **2×** and
+halves MER — 562 rows cover 324 dates. Every query in `src/metrics` and `src/app` already
+filters correctly; the trap is new ad-hoc queries. There is now a check for it.
+
 ### Pages
 
-`/` Overview · `/profit` · `/marketing` · `/social` · `/audience` · `/journeys` ·
-`/customers` · `/churn` · `/personas` · `/forecast` · `/international` · `/costs` ·
-`/shipping` · `/team` · `/ask` · `/account` · `/login` · `/api/health` · `/api/sync` ·
-`/api/ai/ask`
+`/` Overview · `/profit` · `/marketing` · `/creatives` · `/social` · `/audience` ·
+`/journeys` · `/content` · `/customers` · `/churn` · `/personas` · `/discounts` ·
+`/forecast` · `/goals` · `/international` · `/costs` · `/shipping` · `/data` · `/team` ·
+`/ask` · `/account` · `/login` · `/api/health` · `/api/sync` · `/api/refresh` ·
+`/api/ai/ask` · `/api/creative-image/[adId]`
+
+The nav groups these into six dropdowns. Sixteen flat links overflowed the header and put
+a horizontal scrollbar on the whole document — which appears at the very bottom of the
+page, miles from the nav that caused it. Grouping is also a claim about what belongs
+together: Social, Creatives, Audience, Journeys and Content are five views of one question.
+
+**`/data`** — whether the data is actually current, and whether the updating works. Carries
+the sync run log, per-source reliability over the last 20 runs, and the 11 validation
+checks. Reliability separates **standing gaps** (a warning recurring across 3+ runs, e.g.
+the missing `read_reports` scope) from **new problems**, because Shopify otherwise read as
+16 partial runs in 20 — an 85% trouble rate that was two known conditions repeating, and
+which would have buried anything genuinely new. No capability gate: everyone reading a
+number needs to know how old it is.
+
+**`/content`** — readership from GA4. The one question nothing else here can answer: every
+other metric starts from an order, so an article read by 8,000 people who bought nothing
+is invisible. Scoped to content metrics only, deliberately **not** attribution — GA4 runs
+its own model, ours is built from orders, and nothing outside can adjudicate between them.
+**Needs `GA4_PROPERTY_ID` + `GA4_CREDENTIALS_PATH`**; until then the page explains what is
+missing rather than showing an empty table. `run.cmd check:ga4` names the specific mistake
+when the connection fails, because Google returns the same 403 for several causes.
+
+**`/creatives`** — campaigns and ads with cached thumbnail previews (651 stored), and
+Meta's own attribution numbers alongside ours so the gap can be examined rather than
+guessed at.
 
 **`/ask`** is the AI analyst (Claude Opus 5): 24 read-only tools over the existing
 `metrics/*` functions, no SQL. Gated on `requireUser()` — every role may ask — but the
@@ -141,6 +176,46 @@ the *next* piece of work lands in:
   as `./run.sh x` on Johnny's Mac.
 - **`DEPLOY.md` § "If you're on a Mac"** — the three shell differences that matter
   (`run.sh`, `export` instead of `$env:`, `curl` instead of `Invoke-WebRequest`).
+
+### New 20–21 Aug 2026
+
+- **The app updates itself.** Opening any page starts a sync when the data is stale, with
+  nothing to click. Four gates in `lib/sync/auto-refresh.server.ts` stop that becoming a
+  problem: in-flight (one sync at a time), never-run (a page view must not start an 8-minute
+  backfill), **cooldown before staleness** — keyed on the last *attempt*, because a broken
+  source never becomes fresh and staleness alone would retry on every page view and bill a
+  third-party API each time — then staleness. The honest limit: it only runs while the app
+  is open, which is *not* sufficient for Instagram, whose follower history Meta serves over
+  a rolling 30 days and never republishes. The Vercel cron covers that once deployed.
+- **An unauthenticated `/api/*` request now returns 401 JSON, not a redirect to `/login`.**
+  A redirect handed a `fetch` the login page's HTML, so `.json()` threw and the refresh
+  indicator said "Couldn't update data" when the truth was "you are signed out". The rule
+  moved to `lib/auth/wall.ts` as a pure function, because the app's only security boundary
+  had no tests behind it. Page routes still redirect exactly as before.
+- **`run.cmd validate` — phase 10.** 11 invariants against live data, each tied to a
+  failure that actually happened rather than a hypothetical. It closed the rollup identity
+  exactly: `daily_metrics` $187,955.23 = Shopify paid $174,372.33 + Stripe $13,582.90, gap
+  **$0.00** across 562 rows. That had been an assumption.
+- **GA4 content connector** (`src/connectors/ga4/`) + `/content`. Handles four things GA4
+  does that would quietly corrupt the numbers: the `(other)` bucket (day totals come from a
+  second query with no page dimension, and per-page shares are withheld rather than
+  estimated where it applied), query-string fragmentation, two rows mapping to one stored
+  row, and the 48-hour reprocessing window. Needs credentials before it has data.
+- **Skio sync went from 479s to 2.2s** (218×). `incrementalSync` was doing a full load; it
+  now filters on `updatedAt` with a 6-hour overlap. It would have timed out against
+  Vercel's 300s ceiling every single night.
+- **Revenue reclassified.** `revenue_class` is now `paid` | `acquisition_gift` | `comp` |
+  `prepaid_delivery`, defined once in `metrics/revenue-class.ts`. **Branch order is
+  load-bearing** — the promo checks must precede the prepaid conditions, or every giveaway
+  silently becomes a prepaid delivery again. Free first issue is an acquisition cost;
+  win-back is a comp, not acquisition. CAC has a **toggle** (`metrics/cac-basis.ts`):
+  marketing-only or with-free-issues, kept separate rather than blended.
+- **Renewal forecast covers both systems** — Skio `next_billing_at` plus Stripe
+  `current_period_end`. $11,053 of Stripe renewals had been invisible.
+- **The annual plan was priced 3.8× too low** ($26.28 against a real $100), because Skio
+  queues a quarterly delivery order against one annual charge and the price was being
+  derived from average order value. Fixed with an explicit table in `metrics/plan-prices.ts`.
+  Prices there are **ex-tax**.
 
 ### New 11 Aug 2026 (afternoon session)
 
@@ -279,12 +354,33 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
 
 ## 5. The next step I'd take
 
-**In order:**
+### Waiting on Sam — nothing else unblocks these
+
+| Needed | Unblocks |
+|---|---|
+| **GA4 Property ID + service-account key path** (send the *path*, never the file contents; keep the key outside the project folder) | `/content` — the whole readership picture |
+| **Real per-copy COGS** + the UK printer-park cost | Every margin figure. Print COGS is still a **$11.48 placeholder** |
+| **`read_reports` + Level 2** customer-data access on the Shopify app | Automatic shipping-cost sync. Currently a standing gap on every Shopify run |
+| **`ANTHROPIC_API_KEY`** — needs an org admin to approve the request, or a new org | `/ask`, the AI analyst |
+| **A developer for the esses.com capture brief** (`docs/esses-com-attribution.md`) | Attribution on the editorial site |
+| **UTM tagging rollout** by the social manager | Collapses the ROAS band to one number |
+
+### Buildable now, in order
 
 1. **Deploy.** `DEPLOY.md` start to finish (Mac section first). Then
    `check:deploy` — it verifies config, database, data, metrics freshness and every
-   connector, and names the fix for anything wrong.
+   connector, and names the fix for anything wrong. The nightly cron in `vercel.json` is
+   what makes the auto-refresh sufficient rather than best-effort, so this is the highest
+   value item on the list.
 2. **Add the team** via `/team`, using the narrowest role that does the job.
+3. **Phase 11 — advertiser delivery reporting.** The last one from the brief. Needs a
+   conversation about what an advertiser is actually promised before any code: impressions,
+   readership, or something else. Don't guess this.
+4. **The 45 subscriptions with no selling-plan name** (surfaced by `run.cmd validate`).
+   They fall to the derived-from-MRR pricing path, which is exactly how the annual plan
+   came out 3.8× low. Worth naming them properly.
+5. **YoY comparison columns** — blocked until ~Oct 2026 by data history, not by code. An
+   empty column that silently fills in later is worse than no column.
 3. ~~**Re-sync Meta**~~ ✅ **DONE 11 Aug 2026.** `backfill --since=2025-10-01 --source=ads`
    then `metrics`. 6,774 rows, window now to 11 Aug. On identical dates spend held steady
    (+0.4%, late-attribution settling) while platform conversions fell **8,116 → 2,039**,
@@ -398,20 +494,29 @@ only `build` and anything touching the database need one.
 
 ## Headline numbers — quote these with their caveats, never bare
 
-**Restated 12 Aug 2026, window 2025-10-01 → 2026-08-12.** Every surface agrees on this
-window — `/marketing`, `/profit` and `run.cmd metrics` all read the same MER. That was not
-true for a few hours after the ads backfill: `ad_spend` ran a week past the last synced
-order, so the page clipped to the order window and read MER 4.90x while `metrics` read
-4.57 on the wider one. A `run.cmd sync` brought orders forward and the discrepancy closed.
-**If two surfaces ever disagree on MER again, check `max(processed_on)` against
-`max(ad_spend.date)` first** — spend with no orders to earn against is the usual cause.
+**Restated 21 Aug 2026, window 2025-10-01 → 2026-08-20**, from the blended row of
+`daily_metrics` (`channel IS NULL`) and cross-checked by `run.cmd validate`, which now
+closes the identity exactly: rollup $187,955.23 = Shopify paid $174,372.33 + Stripe
+$13,582.90, gap **$0.00**.
 
-- Revenue (net, Shopify paid ex-VAT + Stripe): **$155,062**
-- Ad spend **$33,633** · **MER 4.61x** · aMER 2.23x · blended CAC **$8.22**
-- CM1 $122,860 / CM2 **$95,053** / CM3 $61,421 · CM3 **39.6%** — *paid-order boundary;
-  `/profit` can show a different one on purpose, and print COGS is a placeholder. 747
-  units still have no cost record, so margin is overstated for those.*
-- 8,413 orders costed; **7,895 countable**
+⚠️ **Two ways these figures have gone wrong before, both worth checking first if a surface
+disagrees.** (1) A sum over `daily_metrics` that forgets `channel IS NULL` reads ad spend
+at **2×** and halves MER — that produced a bogus "MER 2.58×" while gathering these very
+numbers. (2) `ad_spend` running past the last synced order makes a page clip to the order
+window while `metrics` uses the wider one; check `max(processed_on)` against
+`max(ad_spend.date)`.
+
+- Revenue (net, Shopify paid ex-VAT + Stripe): **$187,955**
+- Ad spend **$36,440** · **MER 5.16×** · blended CAC **$8.36** (4,357 new customers)
+- CM3 **$73,058** · CM3 **38.9%** — *paid-order boundary; `/profit` can show a different
+  one on purpose, and print COGS is still a $11.48 placeholder, so margin is overstated
+  wherever a unit has no cost record.*
+- **10,477 countable orders**, 9,711 in the rollup window
+- By revenue class: **paid 3,675** · prepaid_delivery 4,342 · acquisition_gift 1,694 ·
+  comp 766. The last two are giveaways — free first issue is an *acquisition cost*, VIP
+  and win-back copies are *comps*. CAC has a toggle for whether to include them.
+- Attribution covers **89.5%** of paid orders (3,288 of 3,675) with a converting touchpoint
+- Instagram: **44,048 followers**, 38 days of history, largest daily move 392
 - Attributed paid-meta ROAS **0.13x–0.53x** — a band, not a point estimate. Floor is what
   we can prove; ceiling assumes every ambiguous untagged social order was Meta's. UTM
   tagging collapses it to one number.
