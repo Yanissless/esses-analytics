@@ -8,8 +8,9 @@
 >
 > **Two stale Google Docs exist in Sam's Drive**, both dated 4 Aug and both titled some variant
 > of "Esses — UTM Tagging Guide". Both open by claiming Esses cannot tell paid Instagram traffic
-> from organic, which this document corrects. They should be replaced, not edited — the Drive
-> connector is create-and-read only.
+> from organic, which this document corrects. (An older note said the Drive connector was
+> create-and-read only, so they could not be tidied up. That is no longer true — it now exposes
+> update, share and trash as well, so the stale copies can be replaced properly once Sam says so.)
 >
 > Numbers below are 14 Aug. As of 21 Aug: paid-meta 350 touchpoints (100% carrying campaign and
 > ad), organic Instagram 1,620 with only 30 tagged, newsletter 72 with none.
