@@ -296,7 +296,12 @@ those, and its patterns are the single source generating the SQL regex too.
 
 ### 4.7 ✅ Delivered — UTM tagging guide for the social manager
 
-Google Doc: **https://docs.google.com/document/d/1drIUn6HEdYkrc8OhqJvAPq5eJtyFCdKHk5Kg0TEdcfE/edit**
+Google Doc: ~~https://docs.google.com/document/d/1drIUn6HEdYkrc8OhqJvAPq5eJtyFCdKHk5Kg0TEdcfE/edit~~
+**⚠️ Superseded 21 Aug 2026** — that Doc opens by claiming Esses cannot tell paid Instagram
+traffic from organic, which was corrected on 14 Aug. Current Doc:
+**https://docs.google.com/document/d/1cF0hw4P2oUvZB6mF8Rs6eniKss9a5yRVwMlVICsij-c/edit**
+("Esses — Link Tagging Guide (21 Aug 2026 — current)"). Source of truth for its content is
+`docs/utm-guide-social-manager.md`.
 
 Written for a non-technical reader, but the values in it are the ones
 `resolveChannel()` actually matches — that's the "integrate correctly" part. Includes

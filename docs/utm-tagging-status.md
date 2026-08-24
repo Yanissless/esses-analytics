@@ -3,8 +3,12 @@
 **Last verified against live data: 14 Aug 2026.**
 
 > **This is the internal/technical status doc.** The version to hand to the social manager is
-> [`utm-guide-social-manager.md`](utm-guide-social-manager.md) (21 Aug), which is written for a
-> non-technical reader and formatted to paste into Google Docs without mangling.
+> [`utm-guide-social-manager.md`](utm-guide-social-manager.md) (21 Aug), published as a Google Doc:
+> **[Esses — Link Tagging Guide (21 Aug 2026 — current)](https://docs.google.com/document/d/1cF0hw4P2oUvZB6mF8Rs6eniKss9a5yRVwMlVICsij-c/edit)**
+>
+> Uploaded as `text/html`, not markdown. Markdown is what mangled the 4 Aug attempt — Drive
+> converted its tables into empty-header rows with literal `**Where**` in the cells. HTML
+> converts to real Doc headings, bold and lists.
 >
 > **Two stale Google Docs exist in Sam's Drive**, both dated 4 Aug and both titled some variant
 > of "Esses — UTM Tagging Guide". Both open by claiming Esses cannot tell paid Instagram traffic
