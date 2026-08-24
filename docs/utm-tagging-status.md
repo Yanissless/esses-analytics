@@ -2,6 +2,18 @@
 
 **Last verified against live data: 14 Aug 2026.**
 
+> **This is the internal/technical status doc.** The version to hand to the social manager is
+> [`utm-guide-social-manager.md`](utm-guide-social-manager.md) (21 Aug), which is written for a
+> non-technical reader and formatted to paste into Google Docs without mangling.
+>
+> **Two stale Google Docs exist in Sam's Drive**, both dated 4 Aug and both titled some variant
+> of "Esses — UTM Tagging Guide". Both open by claiming Esses cannot tell paid Instagram traffic
+> from organic, which this document corrects. They should be replaced, not edited — the Drive
+> connector is create-and-read only.
+>
+> Numbers below are 14 Aug. As of 21 Aug: paid-meta 350 touchpoints (100% carrying campaign and
+> ad), organic Instagram 1,620 with only 30 tagged, newsletter 72 with none.
+
 This supersedes the fragmented advice in earlier notes. It exists because the guidance drifted
 across several conversations and ended up implying that nothing was working. That was wrong.
 
