@@ -60,9 +60,9 @@ validation pass. Phase 11 (advertiser delivery reporting) is the only one outsta
 - **485 tests pass** · `tsc --noEmit` silent · lint **0 errors** (6 pre-existing
   unused-import warnings) · `build` clean across **28 routes** (the number `run.cmd build`
   prints, which includes `/_not-found`)
-- Running against live data (2025-10-01 → 2026-08-20): 10,477 countable orders, $187,955
-  net revenue, MER 5.16×. Full figures with their caveats at the foot of this file.
-- **`run.cmd validate`** asserts 11 invariants against the live data and exits non-zero on
+- Running against live data (2025-10-01 → 2026-08-25): 10,501 countable orders, MER 5.14×,
+  CM3 40.2%. Full figures with their caveats at the foot of this file.
+- **`run.cmd validate`** asserts 13 invariants against the live data and exits non-zero on
   an error, so it can gate a deploy. Same results on `/data`. Run it before quoting a
   figure to anyone outside the team.
 - Git: **68 commits on `master`**, working tree clean, **no remote yet** — that's Part 1
@@ -85,8 +85,8 @@ filters correctly; the trap is new ad-hoc queries. There is now a check for it.
 
 The nav groups these into seven items — five dropdowns, plus Ask and Forecast as plain
 links. Sixteen flat links overflowed the header and put a horizontal scrollbar on the whole
-document, which appears at the very bottom of the page, miles from the nav that caused it. Grouping is also a claim about what belongs
-together: Social, Creatives, Audience, Attribution coverage and Content are five views of
+document, which appears at the very bottom of the page, miles from the nav that caused it.
+Grouping is also a claim about what belongs together: Social, Creatives, Audience, Attribution coverage and Content are five views of
 one question. Costs, Shipping and Team sit under **Settings** — they are places you go to
 *enter* something, not to read something.
 
@@ -367,7 +367,6 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
 |---|---|
 | **GA4 Property ID + service-account key path** (send the *path*, never the file contents; keep the key outside the project folder) | `/content` — the whole readership picture |
 | **Real per-copy COGS** + the UK printer-park cost | Every margin figure. Print COGS is still a **$11.48 placeholder** |
-
 | **`ANTHROPIC_API_KEY`** — needs an org admin to approve the request, or a new org | `/ask`, the AI analyst |
 | **A developer for the esses.com capture brief** (`docs/esses-com-attribution.md`) | Attribution on the editorial site |
 | **UTM tagging rollout** by the social manager | Collapses the ROAS band to one number |
