@@ -93,7 +93,7 @@ one question. Costs, Shipping and Team sit under **Settings** — they are place
 **`/data`** — whether the data is actually current, and whether the updating works. Carries
 the sync run log, per-source reliability over the last 20 runs, and the 11 validation
 checks. Reliability separates **standing gaps** (a warning recurring across 3+ runs, e.g.
-the missing `read_reports` scope) from **new problems**, because Shopify otherwise read as
+an unmatched-label warning) from **new problems**, because Shopify otherwise read as
 16 partial runs in 20 — an 85% trouble rate that was two known conditions repeating, and
 which would have buried anything genuinely new. No capability gate: everyone reading a
 number needs to know how old it is.
@@ -311,7 +311,11 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
     Instagram app is a first-class input, and the charts state how much of the series was
     observed versus hand-entered.
 
-- **ShopifyQL `shipping_labels`** needs `read_reports` *and* Level 2 protected customer
+- ~~**ShopifyQL `shipping_labels`** needs `read_reports` *and* Level 2 protected customer~~
+  **✅ RESOLVED 25 Aug 2026** — the token now carries `read_reports` and the report is
+  reachable. 75% of orders are costed from an actual invoice rather than an estimate. Kept
+  below for the diagnostic reasoning only:
+- Formerly needed `read_reports` *and* Level 2 protected customer
   data access. Deliberately non-fatal — shipping falls back to rate-rule estimates.
 
 ### Bugs that passed every test
@@ -363,7 +367,7 @@ The full list is `HANDOFF.md` §6. The ones most likely to waste your time:
 |---|---|
 | **GA4 Property ID + service-account key path** (send the *path*, never the file contents; keep the key outside the project folder) | `/content` — the whole readership picture |
 | **Real per-copy COGS** + the UK printer-park cost | Every margin figure. Print COGS is still a **$11.48 placeholder** |
-| **`read_reports` + Level 2** customer-data access on the Shopify app | Automatic shipping-cost sync. Currently a standing gap on every Shopify run |
+
 | **`ANTHROPIC_API_KEY`** — needs an org admin to approve the request, or a new org | `/ask`, the AI analyst |
 | **A developer for the esses.com capture brief** (`docs/esses-com-attribution.md`) | Attribution on the editorial site |
 | **UTM tagging rollout** by the social manager | Collapses the ROAS band to one number |
@@ -434,7 +438,7 @@ but v21.0 will sunset eventually and right now that's a code change rather than 
 - **UTM tagging rollout** — the guide is written and delivered to the social manager.
   Collapses attributed ROAS from a 0.15×–0.61× range to a single number.
 - **Archive.com** credentials — Sam is starting that integration.
-- **`read_reports` + Level 2** Shopify access — automates shipping cost.
+- ~~**`read_reports` + Level 2** Shopify access~~ — ✅ granted; shipping cost now syncs automatically.
 - **Meta unblock** — Meta's UI only, see §4.
 
 ---
