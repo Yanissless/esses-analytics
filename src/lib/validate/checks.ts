@@ -358,6 +358,95 @@ const CHECKS: Check[] = [
   },
 
   {
+    name: "no order carries a duplicated shipping charge",
+    guards:
+      "The label-cost sync keyed its invoice on the sync WINDOW, so a rolling window produced " +
+      "a new invoice every night and re-recorded labels it had already stored. 1,038 orders " +
+      "ended up with the same charge up to five times — order #13818 carried an identical " +
+      "$59.46 five times — double-counting about $16,975 of shipping cost. Shipping is a CM2 " +
+      "component, so it was pushing margin DOWN: wrong in the pessimistic direction, which is " +
+      "the one nobody questions.",
+    run: async () => {
+      const r = await one<{ dupes: number; extra: number; worst: string | null }>(sql`
+        WITH per_order AS (
+          SELECT order_id,
+                 count(*)                                   AS charges,
+                 sum(total_amount) - max(total_amount)       AS extra
+            FROM shipping_charges
+           WHERE order_id IS NOT NULL
+           GROUP BY order_id
+          HAVING count(*) > 1
+        )
+        SELECT count(*)::int                       AS dupes,
+               COALESCE(sum(extra), 0)::bigint     AS extra,
+               (SELECT o.order_number || ' ×' || p.charges
+                  FROM per_order p JOIN orders o ON o.id = p.order_id
+                 ORDER BY p.extra DESC LIMIT 1)    AS worst
+          FROM per_order
+      `);
+
+      const dupes = n(r?.dupes);
+      if (dupes === 0) {
+        return { severity: "ok", detail: "every order has at most one shipping charge" };
+      }
+      /*
+       * An order genuinely CAN ship in two parcels, so this is a warning rather than an error.
+       * What made the original case obviously wrong was the shape: charges per order matched
+       * the number of overlapping invoices exactly, and the amounts were identical rather than
+       * merely similar. Read the detail before assuming either way.
+       */
+      return {
+        severity: "warn",
+        detail: `${dupes} order(s) carry more than one shipping charge, ${money(n(r?.extra))} beyond the largest each — worst: ${r?.worst}`,
+        remedy:
+          "Check whether those orders really shipped more than once. If the extra charges are " +
+          "identical amounts from different invoices, it is the duplicate-invoice bug: the " +
+          "sync now keys one invoice per calendar month, so delete the overlapping auto-synced " +
+          "invoices (charges cascade) and re-run run.cmd sync, then run.cmd metrics.",
+      };
+    },
+  },
+
+  {
+    name: "shipping invoices are fully allocated to orders",
+    guards:
+      "An invoice's allocated total is meant to be compared against what was billed. Cost " +
+      "that reaches no order is cost no margin figure carries, which overstates margin by " +
+      "exactly the unallocated amount.",
+    run: async () => {
+      const r = await one<{ invoices: number; billed: number; allocated: number; worst: string | null }>(sql`
+        SELECT count(*)::int                                    AS invoices,
+               COALESCE(sum(total_amount), 0)::bigint           AS billed,
+               COALESCE(sum(allocated_amount), 0)::bigint       AS allocated,
+               (SELECT vendor || ' ' || period_start::text || '..' || period_end::text
+                  FROM shipping_invoices
+                 ORDER BY (total_amount - allocated_amount) DESC LIMIT 1) AS worst
+          FROM shipping_invoices
+      `);
+      const billed = n(r?.billed);
+      if (n(r?.invoices) === 0) return { severity: "skip", detail: "no shipping invoices" };
+
+      const gap = billed - n(r?.allocated);
+      // 10%: some labels legitimately belong to orders outside the imported window, and a
+      // period import can never match those. A gap far above that is unmatched data, not edges.
+      if (gap > billed * 0.1) {
+        return {
+          severity: "warn",
+          detail: `${money(gap)} of ${money(billed)} billed shipping is not attached to any order (${Math.round((gap / billed) * 100)}%) — largest: ${r?.worst}`,
+          remedy:
+            "Usually labels whose orders fall outside the imported window. Check /shipping for " +
+            "the coverage breakdown; margin currently excludes this cost, so it is overstated " +
+            "by up to this amount.",
+        };
+      }
+      return {
+        severity: "ok",
+        detail: `${money(n(r?.allocated))} of ${money(billed)} billed attached to orders`,
+      };
+    },
+  },
+
+  {
     name: "attributed revenue does not exceed total revenue",
     guards:
       "Attribution splits a total; it cannot create one. Exceeding the total means an order is " +

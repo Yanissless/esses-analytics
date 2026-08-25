@@ -129,7 +129,9 @@ async function syncLabelCosts(
       attributedCents: r.attributedCents,
       ratesRefreshed: r.ratesRefreshed,
     });
-    const warnings: string[] = [];
+    // Cap warnings first: an incomplete cost figure matters more than an unmatched label,
+    // because the unmatched case is visible in the invoice allocation total and this one is not.
+    const warnings: string[] = [...r.warnings];
     if (r.unmatched > 0) {
       warnings.push(`${r.unmatched} shipping label(s) had no matching order in range`);
     }

@@ -21,6 +21,8 @@ describe("validation registry", () => {
       /double-counted/, // Meta conversions counted ~3×
       /negative or absurd/, // a restated negative day flatters MER
       /attributed revenue does not exceed/, // attribution splits a total, cannot create one
+      /duplicated shipping charge/, // rolling-window invoice ref re-recorded labels nightly
+      /shipping invoices are fully allocated/, // cost reaching no order overstates margin
       /prepaid plan has a confirmed renewal price/, // annual plan priced 3.8× low
       /Instagram follower day/, // spliced insight chains invented a +150 day
       /content_metrics never exceeds/, // two GA4 queries over mismatched windows
