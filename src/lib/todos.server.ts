@@ -24,6 +24,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { connectorConfigured, env } from "./env";
+import { getRenewalForecast } from "../metrics/renewal-forecast";
 
 export type TodoOwner =
   /** Whoever is reading this can finish it, now, in the app or by pasting a value. */
@@ -95,9 +96,9 @@ export async function getTodos(): Promise<TodoReport> {
       SELECT COALESCE(sum(uncosted_units), 0)::int AS units,
              COALESCE(sum(units), 0)::int          AS total
         FROM order_profit WHERE revenue_class = 'paid'`),
-    one<{ n: number }>(sql`
-      SELECT count(*)::int AS n FROM subscription_meta
-       WHERE status = 'active' AND (selling_plan_name IS NULL OR selling_plan_name = '')`),
+    // Asks the forecast, because it owns the pricing rules. Re-deriving them here in SQL
+    // would be a second copy of a predicate that has already been wrong once.
+    getRenewalForecast(12).then((f) => ({ unknown: f.unknownCount })),
     one<{ n: number }>(sql`
       SELECT count(*)::int AS n FROM attribution_touchpoints
        WHERE channel = 'organic-social' AND campaign IS NULL`),
@@ -122,16 +123,28 @@ export async function getTodos(): Promise<TodoReport> {
     });
   }
 
-  if (n(plans?.n) > 0) {
+  /*
+   * Keyed on whether a price is actually unresolvable, not on whether a name is missing.
+   *
+   * The first version counted subscriptions with no `selling_plan_name` and told the reader to
+   * go and fix 46 of them. They did not need fixing: grouped by billing cadence they fall
+   * cleanly onto the two plans that exist, so `renewalChargeCents` now matches them by
+   * interval and every one is priced. Counting the name would have kept an item on this list
+   * forever that nobody could clear and nobody needed to.
+   *
+   * `unknownCount` is the signal that means something — a subscription whose renewal charge
+   * genuinely cannot be established, which contributes nothing to the forecast.
+   */
+  if (n(plans?.unknown) > 0) {
     items.push({
-      id: "unnamed-plans",
-      title: `${n(plans?.n)} active subscriptions have no plan name`,
+      id: "unpriced-subscriptions",
+      title: `${n(plans?.unknown)} subscriptions have no establishable renewal price`,
       detail:
-        "Their renewal price is derived from average revenue instead of a known price, " +
-        "because there is no plan name to look up.",
+        "No plan name, and a billing cadence that matches none of the known plans, so there " +
+        "is nothing to price them from.",
       blocks:
-        "Exactly how the annual plan came out at $26.28 against a real $100 — a 3.8× error " +
-        "in the renewal forecast, in the direction that looks like underperformance.",
+        "They contribute nothing to the renewal forecast, so it is understated by whatever " +
+        "they would have renewed at.",
       owner: "you",
       href: "/forecast",
       actionLabel: "See the forecast",

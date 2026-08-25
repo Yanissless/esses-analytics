@@ -51,7 +51,50 @@ export const PLAN_RENEWAL_PRICES: Record<string, number> = {
   "Quarterly Subscription": 30_00,
 };
 
-export type PriceSource = "known-plan" | "derived-from-mrr" | "unknown";
+/**
+ * Billing cadence in months → the plan that bills on it.
+ *
+ * ## Why a second lookup exists
+ *
+ * 46 active subscriptions arrive from Skio with `selling_plan_name` null, so they fell to the
+ * MRR fallback — which is exactly how the annual plan came out 3.8× low. The 27 annual ones
+ * among them were being priced around $2.50 a year instead of $100.
+ *
+ * They are not a mystery plan. Grouped by billing interval they split cleanly along the two
+ * plans that do exist, and their MRR ranges sit on top of those plans' averages:
+ *
+ *   every 12 months · 27 subs · MRR $2.08–$9.79   → "Annual Payment, Quarterly Delivery" (avg $2.11)
+ *   every 3 months  · 19 subs · MRR $10.00–$25.00 → "Quarterly Subscription" (avg $10.26)
+ *
+ * So the cadence identifies the plan. That is inference rather than a stated fact, which is why
+ * a match reports its own source — a caller can tell a looked-up name from a matched cadence.
+ *
+ * It is self-limiting too: `planForInterval` refuses when more than one known plan shares a
+ * cadence, so adding a second 12-month plan makes these read "unknown" rather than quietly
+ * being priced as the wrong one.
+ */
+export const PLAN_BILLING_MONTHS: Record<string, number> = {
+  "Annual Payment, Quarterly Delivery": 12,
+  "Quarterly Subscription": 3,
+};
+
+/** The single known plan billing on this cadence, or null when it is not unambiguous. */
+export function planForInterval(months: number | null): string | null {
+  if (months == null || months <= 0) return null;
+  const matches = Object.entries(PLAN_BILLING_MONTHS)
+    .filter(([, m]) => m === months)
+    .map(([name]) => name);
+  // Ambiguity means we genuinely do not know which plan this is, and guessing would reintroduce
+  // exactly the error this file exists to prevent.
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export type PriceSource =
+  | "known-plan"
+  /** The plan name was missing, and the billing cadence matched exactly one known plan. */
+  | "matched-by-interval"
+  | "derived-from-mrr"
+  | "unknown";
 
 export interface RenewalCharge {
   cents: number | null;
@@ -61,10 +104,16 @@ export interface RenewalCharge {
 /**
  * The charge one renewal of this subscription should collect.
  *
- * Prefers the known list price. Falls back to `mrr x billing_interval_count`, which is right
- * for plans that bill and deliver on the same cadence — Sam confirmed the quarterly plan is
- * accurate this way — and wrong for any plan where those cadences differ. Returns
- * `source: "derived-from-mrr"` in that case so the caller can say so.
+ * Three steps, in decreasing confidence:
+ *
+ *  1. The plan name is in the price table. A stated fact.
+ *  2. No name, but the billing cadence matches exactly one known plan — see
+ *     `PLAN_BILLING_MONTHS`. Strong inference, and it rescues the 46 nameless subscriptions
+ *     from step 3.
+ *  3. `mrr × billing_interval_count`. Right for plans that bill and deliver on the same
+ *     cadence, and wrong by the number of deliveries per cycle for any plan where they differ.
+ *
+ * Every step names itself in `source`, so a page can never present a guess as a real price.
  */
 export function renewalChargeCents(sub: {
   sellingPlanName: string | null;
@@ -73,6 +122,14 @@ export function renewalChargeCents(sub: {
 }): RenewalCharge {
   const known = sub.sellingPlanName ? PLAN_RENEWAL_PRICES[sub.sellingPlanName] : undefined;
   if (known !== undefined) return { cents: known, source: "known-plan" };
+
+  // Only when the name is genuinely absent. A name that is present but unrecognised is a new
+  // plan somebody added in Skio, and pricing it off a cadence would hide that.
+  if (!sub.sellingPlanName) {
+    const matched = planForInterval(sub.billingIntervalCount);
+    const price = matched ? PLAN_RENEWAL_PRICES[matched] : undefined;
+    if (price !== undefined) return { cents: price, source: "matched-by-interval" };
+  }
 
   const months = sub.billingIntervalCount ?? 1;
   if (!Number.isFinite(sub.mrrCents) || sub.mrrCents <= 0 || months <= 0) {
