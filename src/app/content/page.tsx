@@ -16,6 +16,7 @@ import {
 import type { PageKind } from "@/connectors/ga4/shape";
 import { Badge, Card, Caveat, InfoTip, Stat, formatNum } from "../_components/ui";
 import { Nav } from "../_components/nav";
+import { RefreshButton } from "../_components/refresh-button";
 import { DateRangePicker } from "../_components/date-range-picker";
 
 export const dynamic = "force-dynamic";
@@ -149,9 +150,11 @@ export default async function ContentPage({
             {coverage && coverage.daysWithData === 0 ? (
               <Card title="No traffic stored for this range">
                 <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                  GA4 is configured but nothing is stored between {range.since} and {range.until}.
-                  Run <code className="text-xs">run.cmd sync --source=ga4</code> to load it. GA4
-                  keeps event data for 14 months at most, so anything older than that is not
+                  GA4 is configured but nothing is stored between {range.since} and {range.until}.{" "}
+                  <span className="inline-block align-middle">
+                    <RefreshButton label="Load it now" />
+                  </span>{" "}
+                  GA4 keeps event data for 14 months at most, so anything older than that is not
                   recoverable from the API.
                 </p>
               </Card>

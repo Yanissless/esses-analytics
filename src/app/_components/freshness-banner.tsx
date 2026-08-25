@@ -14,6 +14,7 @@
 
 import type { SourceFreshness } from "@/lib/freshness.server";
 import { STALE_AFTER_HOURS, staleSummary } from "@/lib/freshness.server";
+import { RefreshButton } from "./refresh-button";
 
 export function FreshnessBanner({
   freshness,
@@ -52,8 +53,13 @@ export function FreshnessBanner({
       {stale.length > 0 ? (
         <div>
           <strong>{staleSummary(stale)}</strong> Anything past {STALE_AFTER_HOURS}h is flagged
-          because a day fetched mid-flight is stored as a whole one. Run{" "}
-          <code className="text-xs">run.cmd sync</code>.
+          because a day fetched mid-flight is stored as a whole one.{" "}
+          <span className="ml-1 inline-block align-middle">
+            <RefreshButton
+              label="Update now"
+              className="rounded-md border border-amber-400 px-2 py-0.5 text-xs font-medium text-amber-900 transition hover:bg-amber-100 disabled:opacity-60 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900/40"
+            />
+          </span>
         </div>
       ) : null}
 

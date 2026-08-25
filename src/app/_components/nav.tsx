@@ -76,6 +76,8 @@ const GROUPS: NavGroup[] = [
       // No capability. Everyone reading a number needs to know how old it is, and gating this
       // would let a viewer trust a figure an admin could see was three days stale.
       { href: "/data", label: "Data updates", capability: undefined },
+      // Sits under Overview because that is where the banner pointing at it lives.
+      { href: "/review", label: "Orders to review", capability: "revenue" },
     ],
   },
   {

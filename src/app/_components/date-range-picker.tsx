@@ -159,7 +159,7 @@ export function DateRangePicker({
       <p className="mt-2 text-[11px] text-neutral-400">
         Ranges end on {anchor}, the most recent day with data
         {lagDays > 0
-          ? ` — ${lagDays} day${lagDays === 1 ? "" : "s"} behind today, so "last 7 days" means the last 7 days of data, not of the calendar. Run \`run.cmd sync\` to close the gap.`
+          ? ` — ${lagDays} day${lagDays === 1 ? "" : "s"} behind today, so "last 7 days" means the last 7 days of data, not of the calendar. Use the "Update now" button to close the gap.`
           : ", which is today."}
         {comparisonUnavailable && compareMode !== "none"
           ? compareMode === "year"

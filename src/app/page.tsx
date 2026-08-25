@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireCapability } from "@/lib/auth/current-user";
 import {
   getDataQuality,
@@ -63,12 +64,20 @@ export default async function Overview() {
               All revenue sources unified · {range}
             </p>
           </div>
+          {/* A link, not an instruction. This used to end "Run `pnpm review`", which is a
+              reasonable thing to tell the person who wrote it and useless to everyone else —
+              so in practice the queue never got cleared and the money stayed out of revenue. */}
           {quality.pendingReviewOrders > 0 ? (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+            <Link
+              href="/review"
+              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 transition hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-200 dark:hover:bg-amber-950"
+            >
               <strong>{quality.pendingReviewOrders} order(s)</strong> awaiting review (
-              {formatUsd(quality.pendingReviewCents)}) — excluded until confirmed. Run{" "}
-              <code className="font-mono">pnpm review</code>
-            </div>
+              {formatUsd(quality.pendingReviewCents)}) — held out of revenue until confirmed.{" "}
+              <span className="underline decoration-dotted underline-offset-2">
+                Review them now →
+              </span>
+            </Link>
           ) : null}
         </div>
 

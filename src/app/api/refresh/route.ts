@@ -35,7 +35,7 @@ export const dynamic = "force-dynamic";
  */
 export const maxDuration = 300;
 
-export async function POST() {
+export async function POST(request: Request) {
   // getCurrentUser, not requireUser or requireCapability: both of those call redirect(),
   // which in an API route answers a background fetch with a 307 to /login. The caller is
   // JavaScript, not a browser navigating, so it needs a status code it can act on.
@@ -48,13 +48,32 @@ export async function POST() {
     return NextResponse.json({ started: false, error: "Not signed in." }, { status: 401 });
   }
 
+  /*
+   * `?force=1` — somebody pressed a button.
+   *
+   * The four gates exist to stop a PAGE VIEW spending third-party API calls, which is a
+   * decision nobody made. A click is a decision somebody made, and refusing it because the
+   * data is 20 minutes short of the staleness threshold makes the button look broken —
+   * exactly the "why is nothing happening" that sends people back to a terminal.
+   *
+   * The in-flight lock still applies, and deliberately: two clicks must not start two syncs
+   * writing the same rows. That is the one gate protecting correctness rather than budget.
+   */
+  const force = new URL(request.url).searchParams.get("force") === "1";
+
   const state = await getRefreshState();
-  if (!state.decision.refresh) {
+  const blocked = !state.decision.refresh;
+  const blockedBy = state.decision.refresh ? null : state.decision.blockedBy;
+
+  if (blocked && (!force || blockedBy === "in-flight")) {
     // Not an error. The common case is two tabs racing, and the loser has nothing to do.
     return NextResponse.json({
       started: false,
-      reason: state.decision.reason,
-      blockedBy: state.decision.blockedBy,
+      reason:
+        force && blockedBy === "in-flight"
+          ? "A sync is already running — this one would write the same rows."
+          : state.decision.reason,
+      blockedBy,
     });
   }
 

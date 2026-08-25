@@ -103,6 +103,55 @@ export async function setReviewDecision(
     .where(eq(orders.id, orderId));
 }
 
+export interface DecidedOrder {
+  orderId: string;
+  orderNumber: string | null;
+  processedAt: Date | null;
+  totalAmount: number;
+  decision: ReviewDecision;
+  customerName: string | null;
+  customerEmail: string | null;
+}
+
+/**
+ * Orders already decided, most recently changed first.
+ *
+ * Exists so the page can offer an undo. A reviewer working down a list will misclick, and
+ * without a way back the only remedy is a SQL update — which, for the people who will actually
+ * be clearing this queue, means asking someone else to fix it.
+ */
+export async function listRecentlyDecided(limit = 25): Promise<DecidedOrder[]> {
+  const rows = await db.execute(sql`
+    SELECT o.id AS order_id, o.order_number, o.processed_at, o.total_amount,
+           o.review_override AS decision,
+           c.name AS customer_name, c.email AS customer_email
+      FROM orders o
+      LEFT JOIN customers c ON c.id = o.customer_id
+     WHERE o.review_override IS NOT NULL
+     ORDER BY o.updated_at DESC
+     LIMIT ${limit}
+  `);
+
+  return (rows as unknown as Record<string, unknown>[]).map((r) => ({
+    orderId: String(r.order_id),
+    orderNumber: (r.order_number as string) ?? null,
+    processedAt: r.processed_at ? new Date(r.processed_at as string) : null,
+    totalAmount: Number(r.total_amount ?? 0),
+    decision: r.decision as ReviewDecision,
+    customerName: (r.customer_name as string) ?? null,
+    customerEmail: (r.customer_email as string) ?? null,
+  }));
+}
+
+/** Value sitting in the queue, so the page can say what is being withheld from revenue. */
+export async function pendingReviewValue(): Promise<number> {
+  const [row] = await db
+    .select({ cents: sql<number>`COALESCE(sum(total_amount), 0)::bigint` })
+    .from(orders)
+    .where(and(eq(orders.needsReview, true), isNull(orders.reviewOverride)));
+  return Number(row?.cents ?? 0);
+}
+
 /** Count still awaiting a decision — for a dashboard badge. */
 export async function pendingReviewCount(): Promise<number> {
   const [row] = await db

@@ -14,6 +14,7 @@ import { paceFromProgress } from "@/metrics/goal-planner";
 import { getRenewalForecast } from "@/metrics/renewal-forecast";
 import { RenewalPanel } from "./renewals";
 import { Nav } from "../_components/nav";
+import { RefreshButton } from "../_components/refresh-button";
 import { GoalForm } from "./forms";
 
 export const dynamic = "force-dynamic";
@@ -93,7 +94,13 @@ export default async function ForecastPage() {
             Everything here is measured to <strong>{asOf}</strong>, the last day the metrics
             tables hold — not today. Projections use that as the end of the observed period, so
             they&rsquo;re honest but they exclude the most recent days entirely. Run{" "}
-            <code className="font-mono">run.cmd sync</code> to catch up.
+            <span className="inline-block align-middle">
+              <RefreshButton
+                label="Update now"
+                className="rounded-md border border-amber-400 px-2 py-0.5 text-xs font-medium text-amber-900 transition hover:bg-amber-100 disabled:opacity-60 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900/40"
+              />
+            </span>{" "}
+            to catch up.
           </div>
         ) : null}
 

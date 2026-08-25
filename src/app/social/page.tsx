@@ -12,6 +12,7 @@ import { getSocialInsights, type SocialInsightsSummary } from "@/metrics/social-
 import { Badge, Card, Caveat, Stat, formatNum, formatUsd } from "../_components/ui";
 import { resolvePageRange } from "@/lib/date-range.server";
 import { Nav } from "../_components/nav";
+import { RefreshButton } from "../_components/refresh-button";
 import { DateRangePicker } from "../_components/date-range-picker";
 import { FreshnessBanner } from "../_components/freshness-banner";
 import { getSourceFreshness } from "@/lib/freshness.server";
@@ -42,7 +43,11 @@ function InsightsPanel({ insights: i }: { insights: SocialInsightsSummary }) {
       >
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
           Nothing recorded between {i.since} and {i.until}. Meta serves these over a rolling
-          window, so run <code className="text-xs">run.cmd sync:instagram --days=30</code> to
+          window, so use{" "}
+          <span className="inline-block align-middle">
+            <RefreshButton label="Update now" />
+          </span>{" "}
+          to
           fill what it still has — anything older than that is gone for good.
         </p>
       </Card>
