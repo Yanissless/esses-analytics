@@ -78,6 +78,9 @@ const GROUPS: NavGroup[] = [
       { href: "/data", label: "Data updates", capability: undefined },
       // Sits under Overview because that is where the banner pointing at it lives.
       { href: "/review", label: "Orders to review", capability: "revenue" },
+      // No capability: knowing what is outstanding is not privileged, and each item links to
+      // a page that guards itself.
+      { href: "/todo", label: "What's outstanding", capability: undefined },
     ],
   },
   {
