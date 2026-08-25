@@ -408,40 +408,71 @@ const CHECKS: Check[] = [
   },
 
   {
-    name: "shipping invoices are fully allocated to orders",
+    name: "every stored shipping charge reaches an order",
     guards:
-      "An invoice's allocated total is meant to be compared against what was billed. Cost " +
-      "that reaches no order is cost no margin figure carries, which overstates margin by " +
-      "exactly the unallocated amount.",
+      "A charge row with no order is cost no margin figure carries. The earlier version of " +
+      "this check compared an invoice's billed total against its allocated total and reported " +
+      "36% unallocated with 'margin is overstated by up to this amount' — which read as a job " +
+      "for somebody. It wasn't. Every stored charge was attached; the gap was labels for " +
+      "orders placed BEFORE the data window (our first order is #5684 on 2025-10-01, and the " +
+      "unmatched labels were #5489, #5494, #5607…) which shipped inside it. Excluding those is " +
+      "correct — costing an order whose revenue we do not hold would understate margin, not " +
+      "improve it. So this checks the thing that would actually be wrong.",
     run: async () => {
-      const r = await one<{ invoices: number; billed: number; allocated: number; worst: string | null }>(sql`
-        SELECT count(*)::int                                    AS invoices,
-               COALESCE(sum(total_amount), 0)::bigint           AS billed,
-               COALESCE(sum(allocated_amount), 0)::bigint       AS allocated,
-               (SELECT vendor || ' ' || period_start::text || '..' || period_end::text
-                  FROM shipping_invoices
-                 ORDER BY (total_amount - allocated_amount) DESC LIMIT 1) AS worst
-          FROM shipping_invoices
+      const r = await one<{ rows: number; orphans: number; orphan_cents: number; attached: number }>(sql`
+        SELECT count(*)::int                                                  AS rows,
+               count(*) FILTER (WHERE order_id IS NULL)::int                  AS orphans,
+               COALESCE(sum(total_amount) FILTER (WHERE order_id IS NULL), 0)::bigint AS orphan_cents,
+               COALESCE(sum(total_amount) FILTER (WHERE order_id IS NOT NULL), 0)::bigint AS attached
+          FROM shipping_charges
       `);
-      const billed = n(r?.billed);
-      if (n(r?.invoices) === 0) return { severity: "skip", detail: "no shipping invoices" };
+      if (n(r?.rows) === 0) return { severity: "skip", detail: "no shipping charges stored" };
 
-      const gap = billed - n(r?.allocated);
-      // 10%: some labels legitimately belong to orders outside the imported window, and a
-      // period import can never match those. A gap far above that is unmatched data, not edges.
-      if (gap > billed * 0.1) {
+      if (n(r?.orphans) > 0) {
         return {
           severity: "warn",
-          detail: `${money(gap)} of ${money(billed)} billed shipping is not attached to any order (${Math.round((gap / billed) * 100)}%) — largest: ${r?.worst}`,
+          detail: `${n(r?.orphans)} charge row(s) worth ${money(n(r?.orphan_cents))} have no order attached`,
           remedy:
-            "Usually labels whose orders fall outside the imported window. Check /shipping for " +
-            "the coverage breakdown; margin currently excludes this cost, so it is overstated " +
-            "by up to this amount.",
+            "A charge is stored to be costed against an order. Either the match failed or the " +
+            "row should not have been kept — check lib/shipping/match.ts, then re-run " +
+            "run.cmd sync and run.cmd metrics.",
         };
       }
       return {
         severity: "ok",
-        detail: `${money(n(r?.allocated))} of ${money(billed)} billed attached to orders`,
+        detail: `all ${n(r?.rows)} charge(s) attached to an order, ${money(n(r?.attached))} carried into margin`,
+      };
+    },
+  },
+
+  {
+    name: "no shipping invoice is an empty shell",
+    guards:
+      "An invoice exists to hold charges. One with a billed total and no charges inflates any " +
+      "billed-versus-allocated comparison while contributing nothing — three such rows " +
+      "(Jul–Sep 2025, $5,016) were created by the monthly rewrite for months that predate the " +
+      "order history entirely.",
+    run: async () => {
+      const r = await one<{ empties: number; cents: number; refs: string | null }>(sql`
+        WITH e AS (
+          SELECT i.invoice_ref, i.total_amount
+            FROM shipping_invoices i
+           WHERE NOT EXISTS (SELECT 1 FROM shipping_charges c WHERE c.invoice_id = i.id)
+        )
+        SELECT count(*)::int                              AS empties,
+               COALESCE(sum(total_amount), 0)::bigint     AS cents,
+               string_agg(invoice_ref, ', ')              AS refs
+          FROM e
+      `);
+      if (n(r?.empties) === 0) {
+        return { severity: "ok", detail: "every invoice holds at least one charge" };
+      }
+      return {
+        severity: "warn",
+        detail: `${n(r?.empties)} invoice(s) with no charges, ${money(n(r?.cents))} billed: ${r?.refs}`,
+        remedy:
+          "Harmless to margin — nothing reads them — but they distort any billed-versus-" +
+          "allocated figure. The sync no longer creates them; delete these to tidy up.",
       };
     },
   },

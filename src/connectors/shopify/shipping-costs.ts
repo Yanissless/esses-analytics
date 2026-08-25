@@ -372,6 +372,14 @@ export async function syncShippingLabelCosts(
     matched += res.matched;
     unmatched += res.unmatched;
     attributedCents += res.totalAttributedCents;
+
+    if (res.matched === 0) {
+      // Nothing attached, so the invoice holds nothing. Months entirely outside the order
+      // history do this — Jul–Sep 2025 produced three invoices carrying $5,016 of billed total
+      // and zero charges, which then made every billed-versus-allocated figure look worse than
+      // reality. An invoice exists to hold charges; without any it is noise.
+      await db.delete(shippingInvoices).where(eq(shippingInvoices.id, invoice.id));
+    }
   }
 
   if (skipped.length) {
