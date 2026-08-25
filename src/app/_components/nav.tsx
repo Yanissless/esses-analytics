@@ -103,6 +103,8 @@ const GROUPS: NavGroup[] = [
       { href: "/customers", label: "Customers & LTV", capability: "customers" },
       { href: "/churn", label: "Churn & cohorts", capability: "audience" },
       { href: "/personas", label: "Personas", capability: "audience" },
+      // Both platforms in one cadence taxonomy — the book as one thing rather than two.
+      { href: "/plans", label: "Subscription plans", capability: "revenue" },
     ],
   },
   {
