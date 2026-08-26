@@ -101,6 +101,9 @@ const GROUPS: NavGroup[] = [
     label: "Customers",
     links: [
       { href: "/customers", label: "Customers & LTV", capability: "customers" },
+      // Counted on paid purchases, not orders — see metrics/customer-tenure.ts for why that
+      // distinction changes the answer by roughly 2.5x in a subscription business.
+      { href: "/repeat", label: "First-time vs repeat", capability: "customers" },
       { href: "/churn", label: "Churn & cohorts", capability: "audience" },
       { href: "/personas", label: "Personas", capability: "audience" },
       // Both platforms in one cadence taxonomy — the book as one thing rather than two.
