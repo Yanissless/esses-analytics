@@ -35,6 +35,12 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db/client";
 import { env } from "../../lib/env";
 import { logger } from "../../lib/logger";
+import {
+  adDestinations,
+  hostOf,
+  taggedForTracking,
+  type CreativeLinkFields,
+} from "./destinations";
 
 const API_VERSION = "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
@@ -99,7 +105,12 @@ interface RawAd {
   name?: string;
   status?: string;
   campaign_id?: string;
-  creative?: {
+  /**
+   * Intersects `CreativeLinkFields` so the destination helpers can read it directly. The
+   * picture fields and the link fields come back in the same request, so asking for both costs
+   * nothing extra.
+   */
+  creative?: CreativeLinkFields & {
     id?: string;
     object_type?: string;
     image_url?: string;
@@ -119,8 +130,13 @@ async function listAds(): Promise<RawAd[]> {
     "name",
     "status",
     "campaign_id",
-    "creative{id,object_type,image_url,thumbnail_url,effective_object_story_id," +
-      "object_story_spec{link_data{picture},video_data{image_url}}}",
+    // The link fields are the destination audit. An ad pointing somewhere we cannot observe is
+    // invisible spend, and this request is the only place that fact is available — it was
+    // already being fetched implicitly and discarded.
+    "creative{id,object_type,image_url,thumbnail_url,effective_object_story_id,url_tags," +
+      "object_story_spec{link_data{picture,link,child_attachments{link}}," +
+      "video_data{image_url,call_to_action{value{link}}}}," +
+      "asset_feed_spec{link_urls{website_url}}}",
   ].join(",");
 
   let url =
@@ -287,14 +303,25 @@ export async function syncAdCreatives(
 
     // Metadata is always written; the image columns only overwrite when we actually got
     // bytes, so a failed download never blanks a picture cached on an earlier run.
+    // Where this ad sends people. Overwritten on every run rather than COALESCEd like the
+    // image columns: a changed destination is the thing worth catching, so the newest answer
+    // has to win. Keeping an old value would hide exactly the switch this exists to detect.
+    const destinations = adDestinations(ad.creative);
+    const destinationUrl = destinations[0] ?? null;
+    const destinationHost = hostOf(destinationUrl);
+    const hasUrlTags = taggedForTracking(ad.creative);
+
     await db.execute(sql`
       INSERT INTO ad_creative
         (platform, ad_id, ad_name, campaign_id, creative_id, object_type, status,
-         image_data, image_mime, image_source, image_bytes, permalink, fetched_at)
+         image_data, image_mime, image_source, image_bytes, permalink,
+         destination_url, destination_host, has_url_tags, fetched_at)
       VALUES ('meta', ${ad.id}, ${ad.name ?? null}, ${ad.campaign_id ?? null},
               ${ad.creative?.id ?? null}, ${ad.creative?.object_type ?? null},
               ${ad.status ?? null}, ${imageData}, ${imageMime}, ${imageSource},
-              ${imageBytes}, ${permalink}, ${imageData ? sql`now()` : sql`NULL`})
+              ${imageBytes}, ${permalink},
+              ${destinationUrl}, ${destinationHost}, ${hasUrlTags},
+              ${imageData ? sql`now()` : sql`NULL`})
       ON CONFLICT (platform, ad_id) DO UPDATE SET
         ad_name     = EXCLUDED.ad_name,
         campaign_id = EXCLUDED.campaign_id,
@@ -306,6 +333,9 @@ export async function syncAdCreatives(
         image_source = COALESCE(EXCLUDED.image_source, ad_creative.image_source),
         image_bytes  = COALESCE(EXCLUDED.image_bytes,  ad_creative.image_bytes),
         permalink    = COALESCE(EXCLUDED.permalink,    ad_creative.permalink),
+        destination_url  = EXCLUDED.destination_url,
+        destination_host = EXCLUDED.destination_host,
+        has_url_tags     = EXCLUDED.has_url_tags,
         fetched_at   = COALESCE(EXCLUDED.fetched_at,   ad_creative.fetched_at),
         updated_at   = now()
     `);

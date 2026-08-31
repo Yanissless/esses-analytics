@@ -300,6 +300,109 @@ const CHECKS: Check[] = [
   },
 
   {
+    name: "ad spend goes somewhere we can measure",
+    guards:
+      "On 31 Aug 2026 all 57 active ads were found pointing at esses.com/checkout — Craft, not " +
+      "Shopify — with 56 of 57 carrying no UTMs. A click landing on Craft creates no Shopify " +
+      "touchpoint, so the spend is invisible rather than untagged. Traceable paid-meta " +
+      "touchpoints fell from 42 in week 33 to 7 and 10 after, while spend held near $1,800 a " +
+      "week. Nothing noticed, and here is the nasty part: the tagging coverage figures read " +
+      "100% throughout, because they measure the touchpoints that DO arrive. A coverage metric " +
+      "built on touchpoints gets BETTER as ads stop producing them.",
+    run: async () => {
+      const r = await one<{
+        active: number;
+        unobservable: number;
+        untagged: number;
+        spend_cents: number;
+        hosts: string | null;
+      }>(sql`
+        WITH live AS (
+          SELECT c.ad_id, c.destination_host, c.has_url_tags
+            FROM ad_creative c
+           WHERE c.platform = 'meta' AND upper(COALESCE(c.status, '')) = 'ACTIVE'
+        ),
+        recent_spend AS (
+          SELECT ad_id, sum(spend_amount) AS cents
+            FROM ad_spend
+           WHERE platform = 'meta' AND date > current_date - 30
+           GROUP BY 1
+        )
+        SELECT count(*)::int AS active,
+               count(*) FILTER (
+                 WHERE l.destination_host IS NOT NULL
+                   AND l.destination_host NOT LIKE '%myshopify.com'
+                   AND l.destination_host NOT LIKE '%shop.app'
+                   AND l.destination_host NOT LIKE '%shopify.com'
+               )::int AS unobservable,
+               count(*) FILTER (WHERE l.has_url_tags IS NOT TRUE)::int AS untagged,
+               COALESCE(sum(s.cents) FILTER (
+                 WHERE l.destination_host IS NOT NULL
+                   AND l.destination_host NOT LIKE '%myshopify.com'
+                   AND l.destination_host NOT LIKE '%shop.app'
+                   AND l.destination_host NOT LIKE '%shopify.com'
+               ), 0)::bigint AS spend_cents,
+               -- Named by SPEND, not alphabetically. A plain string_agg listed
+               -- "www.essesmag.com, www.eventbrite.com" — two hosts with no money on them —
+               -- while esses.com held $8,802 and went unmentioned. A check that names the
+               -- wrong host sends somebody to fix the wrong thing.
+               (SELECT string_agg(h.destination_host || ' (' || to_char(h.cents / 100.0, 'FM$999,999') || ')', ', ')
+                  FROM (
+                    SELECT l2.destination_host, COALESCE(sum(s2.cents), 0) AS cents
+                      FROM live l2
+                      LEFT JOIN recent_spend s2 ON s2.ad_id = l2.ad_id
+                     WHERE l2.destination_host IS NOT NULL
+                       AND l2.destination_host NOT LIKE '%myshopify.com'
+                       AND l2.destination_host NOT LIKE '%shop.app'
+                       AND l2.destination_host NOT LIKE '%shopify.com'
+                     GROUP BY 1
+                     ORDER BY 2 DESC
+                     LIMIT 3
+                  ) h)                                   AS hosts
+          FROM live l
+          LEFT JOIN recent_spend s ON s.ad_id = l.ad_id
+      `);
+
+      const active = n(r?.active);
+      if (active === 0) {
+        return {
+          severity: "skip",
+          detail: "no active Meta creatives stored — run a creatives sync",
+        };
+      }
+
+      if (n(r?.unobservable) > 0) {
+        return {
+          severity: "error",
+          detail:
+            `${n(r?.unobservable)} of ${active} active ads send people to ${r?.hosts}, which ` +
+            `records no touchpoint. ${money(n(r?.spend_cents))} spent there in the last 30 days ` +
+            `cannot be attributed to anything.`,
+          remedy:
+            "Either point the ads back at Shopify, or finish the esses.com capture brief in " +
+            "docs/esses-com-attribution.md so Craft forwards the tags to checkout. Tagging the " +
+            "ads alone will not help while the destination discards them.",
+        };
+      }
+
+      if (n(r?.untagged) > 0) {
+        return {
+          severity: "warn",
+          detail: `${n(r?.untagged)} of ${active} active ads land on Shopify but carry no UTMs`,
+          remedy:
+            "The visit is recorded but cannot be traced to a specific ad. Append UTMs to the " +
+            "destination URL or set them in Ads Manager's URL parameters field.",
+        };
+      }
+
+      return {
+        severity: "ok",
+        detail: `all ${active} active ads land somewhere we record, carrying UTMs`,
+      };
+    },
+  },
+
+  {
     name: "no ad spend day is double-counted",
     guards:
       "Meta conversions were once triple-counted. Spend arrives per ad per day, and a second " +

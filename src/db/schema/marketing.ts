@@ -1,5 +1,6 @@
 import {
   bigint,
+  boolean,
   date,
   doublePrecision,
   index,
@@ -180,6 +181,36 @@ export const adCreative = pgTable(
 
     /** Link to the live post when there is one, so someone can go look at the real thing. */
     permalink: text("permalink"),
+
+    /**
+     * Where the ad actually sends people, and whether it carries tracking.
+     *
+     * ## Why these are stored rather than fetched when needed
+     *
+     * On 31 Aug 2026 every one of the 57 active ads was pointing at
+     * `esses.com/checkout?checkoutLink=…` — Craft, not Shopify — with 56 of the 57 carrying no
+     * UTMs. A click landing on Craft produces no Shopify touchpoint at all, so that traffic is
+     * invisible rather than merely untagged: traceable paid-meta touchpoints fell from 42 in
+     * week 33 to 7 and 10 in the weeks after, while spend held around $1,800 a week.
+     *
+     * Nothing in the app could have noticed. Spend kept arriving, creatives kept syncing, and
+     * the tagging figures read 100% because they measure the touchpoints that DO arrive — a
+     * shrinking legacy population. The destination was the missing fact, and it was already
+     * being fetched and then discarded.
+     *
+     * Stored so the check for it is a database query rather than a Graph call, and so the day a
+     * destination changes is recorded rather than inferred afterwards from a collapse in
+     * coverage.
+     */
+    destinationUrl: text("destination_url"),
+    /** Host only, for grouping and for the observability check. */
+    destinationHost: text("destination_host"),
+    /**
+     * True when the ad carries UTMs, from either Meta's `url_tags` field or the destination URL
+     * itself. Both are used in practice — see docs/utm-tagging-status.md.
+     */
+    hasUrlTags: boolean("has_url_tags"),
+
     /** When the bytes were last fetched, so a stale cache is visible rather than assumed. */
     fetchedAt: timestamp("fetched_at", { withTimezone: true }),
     ...timestamps,

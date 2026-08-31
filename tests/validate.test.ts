@@ -18,6 +18,7 @@ describe("validation registry", () => {
       /revenue_class partitions/, // the CASE existed in two files
       /daily_metrics revenue agrees/, // rollup vs source drift
       /channel rows stay within the blended row/, // an unfiltered sum reads spend at ~2×
+      /ad spend goes somewhere we can measure/, // ads switched to Craft; spend became invisible
       /double-counted/, // Meta conversions counted ~3×
       /negative or absurd/, // a restated negative day flatters MER
       /attributed revenue does not exceed/, // attribution splits a total, cannot create one
