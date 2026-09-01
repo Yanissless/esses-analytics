@@ -324,22 +324,29 @@ function segmentPredicate(segment: PersonaSegment): SQL {
 const ALL_SEGMENTS = Object.keys(DEFINITIONS) as PersonaSegment[];
 
 /**
- * Profile every segment. One query per segment against a shared base — the base is
- * the expensive part, but it's a CTE the planner materialises once per query, and
- * segment count is small and fixed.
+ * Profile every segment, in one statement.
+ *
+ * ## Why this was rewritten
+ *
+ * It used to loop the segments and run two queries each. The old comment here said the base was
+ * "a CTE the planner materialises once per query, and segment count is small and fixed" — both
+ * statements true, and together they hid the cost. Once per QUERY, with 1 + 13 × 2 = 27
+ * queries, meant the whole customer-facts join ran 27 times. `/personas` took **30.7 seconds**
+ * to render, against under 2.9s for every other page in the app.
+ *
+ * A CTE genuinely is materialised once per statement, so the fix is to make it one statement.
+ * Each segment becomes a `UNION ALL` branch tagging its own key, the top country is resolved by
+ * `DISTINCT ON` over a second set of branches, and the paying total is a scalar subquery over
+ * the same CTE.
+ *
+ * The lesson worth keeping: "the expensive part is shared" only holds inside one statement.
+ * Sharing it across a loop shares nothing.
  */
 export async function getPersonaProfiles(): Promise<PersonaProfile[]> {
-  const [totals] = await rows<Record<string, unknown>>(sql`
-    WITH ${SUBS_CTE}, ${CUSTOMER_FACTS}
-    SELECT count(*)::int AS paying, count(email)::int AS contactable FROM paying
-  `);
-  const payingTotal = num(totals?.paying);
-
-  const out: PersonaProfile[] = [];
-  for (const segment of ALL_SEGMENTS) {
-    const [r] = await rows<Record<string, unknown>>(sql`
-      WITH ${SUBS_CTE}, ${CUSTOMER_FACTS}
-      SELECT count(*)::int AS customers,
+  const profileBranches = ALL_SEGMENTS.map(
+    (segment) => sql`
+      SELECT ${segment}::text AS segment,
+             count(*)::int AS customers,
              count(p.email)::int AS contactable,
              avg(p.value) AS ltv,
              sum(p.shopify_revenue) AS shopify_revenue,
@@ -351,17 +358,48 @@ export async function getPersonaProfiles(): Promise<PersonaProfile[]> {
              sum(p.churned_by_first)::int AS churned_by_first
         FROM paying p
        WHERE ${segmentPredicate(segment)}
-    `);
+    `,
+  );
 
-    // Top country resolved separately — reusing the segment predicate inside a
-    // correlated subquery in the aggregate above would need a second alias.
-    const [geo] = await rows<Record<string, unknown>>(sql`
-      WITH ${SUBS_CTE}, ${CUSTOMER_FACTS}
-      SELECT p.country, count(*)::int AS n
+  const geoBranches = ALL_SEGMENTS.map(
+    (segment) => sql`
+      SELECT ${segment}::text AS segment, p.country, count(*)::int AS n
         FROM paying p
        WHERE ${segmentPredicate(segment)} AND p.country IS NOT NULL
-       GROUP BY p.country ORDER BY n DESC LIMIT 1
-    `);
+       GROUP BY p.country
+    `,
+  );
+
+  const all = await rows<Record<string, unknown>>(sql`
+    WITH ${SUBS_CTE}, ${CUSTOMER_FACTS},
+    profiles AS (
+      ${sql.join(profileBranches, sql` UNION ALL `)}
+    ),
+    geo_all AS (
+      ${sql.join(geoBranches, sql` UNION ALL `)}
+    ),
+    -- Highest-count country per segment. DISTINCT ON is Postgres's cheapest top-N-per-group.
+    geo_top AS (
+      SELECT DISTINCT ON (segment) segment, country, n
+        FROM geo_all ORDER BY segment, n DESC
+    )
+    SELECT pr.*,
+           gt.country                         AS top_country,
+           gt.n                               AS top_country_n,
+           (SELECT count(*) FROM paying)::int AS paying_total
+      FROM profiles pr
+      LEFT JOIN geo_top gt ON gt.segment = pr.segment
+  `);
+
+  const payingTotal = num(all[0]?.paying_total);
+  const out: PersonaProfile[] = [];
+
+  for (const r of all) {
+    const segment = String(r.segment) as PersonaSegment;
+    const geo =
+      r.top_country == null
+        ? undefined
+        : { country: r.top_country, n: r.top_country_n };
 
     const customers = num(r?.customers);
     const paidOrders = num(r?.paid_orders);
@@ -412,30 +450,60 @@ export async function getSegmentOverlap(
   segments: PersonaSegment[] = ALL_SEGMENTS,
   minOverlap = 0.25,
 ): Promise<SegmentOverlapRow[]> {
-  const out: SegmentOverlapRow[] = [];
+  if (segments.length < 2) return [];
 
-  for (let i = 0; i < segments.length; i++) {
-    for (let j = i + 1; j < segments.length; j++) {
-      const [r] = await rows<Record<string, unknown>>(sql`
-        WITH ${SUBS_CTE}, ${CUSTOMER_FACTS}
-        SELECT count(*) FILTER (
-                 WHERE ${segmentPredicate(segments[i])} AND ${segmentPredicate(segments[j])}
-               )::int AS both,
-               count(*) FILTER (WHERE ${segmentPredicate(segments[i])})::int AS a_n,
-               count(*) FILTER (WHERE ${segmentPredicate(segments[j])})::int AS b_n
-          FROM paying p
-      `);
-      const both = num(r?.both);
-      const smaller = Math.min(num(r?.a_n), num(r?.b_n));
-      const share = ratio(both, smaller);
-      if (both > 0 && share != null && share >= minOverlap) {
-        out.push({
-          a: segments[i],
-          b: segments[j],
-          bothCustomers: both,
-          overlapOfSmaller: share,
-        });
-      }
+  /*
+   * Was a nested loop: 13 segments means 78 pairs, each its own query rebuilding the whole
+   * customer-facts CTE. Together with the segment loop above it made /personas take 30 seconds
+   * — and fixing only that loop left it at 19, because this was the larger half.
+   *
+   * Membership is unpivoted once into (customer, segment) pairs, and the pairwise counting
+   * becomes a single self-join on customer with `a < b` to get each pair once. 13 branches
+   * instead of 78, one statement, and the expensive CTE evaluated once.
+   */
+  const memberBranches = segments.map(
+    (segment) => sql`
+      SELECT p.id AS customer_id, ${segment}::text AS segment
+        FROM paying p
+       WHERE ${segmentPredicate(segment)}
+    `,
+  );
+
+  const data = await rows<Record<string, unknown>>(sql`
+    WITH ${SUBS_CTE}, ${CUSTOMER_FACTS},
+    memberships AS (
+      ${sql.join(memberBranches, sql` UNION ALL `)}
+    ),
+    sizes AS (
+      SELECT segment, count(*)::int AS n FROM memberships GROUP BY 1
+    ),
+    pairs AS (
+      SELECT m1.segment AS a, m2.segment AS b, count(*)::int AS both
+        FROM memberships m1
+        JOIN memberships m2
+          ON m2.customer_id = m1.customer_id
+         -- Lexical ordering yields each unordered pair exactly once and drops self-pairs.
+         AND m1.segment < m2.segment
+       GROUP BY 1, 2
+    )
+    SELECT pr.a, pr.b, pr.both, sa.n AS a_n, sb.n AS b_n
+      FROM pairs pr
+      JOIN sizes sa ON sa.segment = pr.a
+      JOIN sizes sb ON sb.segment = pr.b
+  `);
+
+  const out: SegmentOverlapRow[] = [];
+  for (const r of data) {
+    const both = num(r.both);
+    const smaller = Math.min(num(r.a_n), num(r.b_n));
+    const share = ratio(both, smaller);
+    if (both > 0 && share != null && share >= minOverlap) {
+      out.push({
+        a: String(r.a) as PersonaSegment,
+        b: String(r.b) as PersonaSegment,
+        bothCustomers: both,
+        overlapOfSmaller: share,
+      });
     }
   }
 
