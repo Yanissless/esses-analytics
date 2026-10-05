@@ -1,5 +1,5 @@
 /**
- * Seed the initial admin users (Sam, Johnny). Run with `pnpm db:seed`.
+ * Seed the initial admin user (Sam). Run with `pnpm db:seed`.
  *
  * Idempotent: re-running ensures the accounts exist and are admins, but never
  * overwrites an existing user's password (they may have changed it). Passwords
@@ -14,12 +14,9 @@ import postgres from "postgres";
 import { users } from "../src/db/schema";
 import { hashPassword } from "../src/lib/auth/password";
 
-// NOTE: johnny@essesmag.com is a placeholder — confirm/replace Johnny's real
-// address. Sam's is known from the workspace.
-const ADMINS = [
-  { email: "sam@essesmag.com", name: "Sam" },
-  { email: "johnny@essesmag.com", name: "Johnny" },
-];
+// Only Sam is seeded: every seeded account shares SEED_ADMIN_PASSWORD, so on a public
+// host extra admins must be invited from the Team page with their own one-time password.
+const ADMINS = [{ email: "sam@essesmag.com", name: "Sam" }];
 
 async function main() {
   const url = process.env.DATABASE_URL;
