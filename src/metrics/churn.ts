@@ -11,7 +11,7 @@
  *    makes recent cohorts look loyal and old ones look leaky, which is an artefact,
  *    not a finding. (This project already hit the same trap with cohort LTV, where
  *    it read as $88 → $37 "collapsing" until a fixed 3-month window showed LTV was
- *    actually rising.) So `churnByFirstRenewalPct` — churn among only those
+ *    actually rising.) So `churnedBeforeFirstRenewalPct` — churn among only those
  *    subscriptions old enough to have FACED a first renewal — is the column to
  *    compare, and `matureSubscriptions` states that denominator.
  *
@@ -309,7 +309,7 @@ export interface ChurnCohort {
    * is the cross-cohort comparable figure. Null when no subscription in the cohort
    * is mature enough yet.
    */
-  churnByFirstRenewalPct: number | null;
+  churnedBeforeFirstRenewalPct: number | null;
   matureSubscriptions: number;
   avgLifetimeMonths: number | null;
   medianLifetimeMonths: number | null;
@@ -352,12 +352,21 @@ export const SUBS_CTE = sql`
       FROM subscription_meta sm
      WHERE sm.started_at IS NOT NULL
     UNION ALL
+    -- status = 'expired' means Stripe's raw incomplete_expired: the FIRST invoice was
+    -- never paid (verified live against Stripe, 22 Sep 2026 — amount_paid = 0,
+    -- payment never attempted, voided by a separate API call, often followed
+    -- seconds later by a second, successful subscription for the same customer).
+    -- Unlike Skio's FAILED above, this isn't a subscriber who churned — no charge
+    -- ever succeeded, so nothing to count as a cohort member OR a churn event.
+    -- Excluded outright rather than marked churned, the same reasoning
+    -- renewal-counting.ts uses for a subscription with no linked order:
+    -- "unmeasurable" is not the same claim as "un-renewed".
     SELECT 'stripe', ss.id, ss.customer_id, ss.started_at,
            ss.canceled_at, ss.status::text,
            COALESCE(ss.plan_nickname, ss.subscription_line::text, 'unknown'),
            ss.interval, ss.interval_count, ss.mrr_amount
       FROM stripe_subscriptions ss
-     WHERE ss.started_at IS NOT NULL
+     WHERE ss.started_at IS NOT NULL AND ss.status != 'expired'
   ),
   enriched AS (
     SELECT s.*,
@@ -598,7 +607,7 @@ export async function getChurnCohorts(
       active: num(r.active),
       churned: num(r.churned),
       churnRatePct: ratio(num(r.churned), num(r.subscriptions)),
-      churnByFirstRenewalPct: mature > 0 ? ratio(num(r.churned_by_first), mature) : null,
+      churnedBeforeFirstRenewalPct: mature > 0 ? ratio(num(r.churned_by_first), mature) : null,
       matureSubscriptions: mature,
       avgLifetimeMonths: numOrNull(r.avg_lived),
       medianLifetimeMonths: numOrNull(r.median_lived),

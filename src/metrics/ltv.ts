@@ -49,7 +49,9 @@ const CUSTOMER_VALUE = sql`
            sum(amount_paid_amount) AS paid,
            sum(CASE WHEN subscription_line = 'print' THEN amount_paid_amount ELSE 0 END) AS print_paid,
            sum(CASE WHEN subscription_line = 'digital' THEN amount_paid_amount ELSE 0 END) AS digital_paid,
-           min(invoiced_at) AS first_invoice_at
+           -- PAID invoices only: an abandoned-checkout invoice (voided, never charged —
+           -- see churn.ts's SUBS_CTE) can predate the real one and misdate the cohort.
+           min(invoiced_at) FILTER (WHERE paid) AS first_invoice_at
       FROM stripe_invoices WHERE customer_id IS NOT NULL
      GROUP BY customer_id
   )
@@ -262,7 +264,8 @@ export async function getSubscriptionRetention(): Promise<SubscriptionRetention[
            count(*) FILTER (WHERE status = 'canceled') AS canceled,
            COALESCE(sum(mrr_amount) FILTER (WHERE status = 'active'), 0) AS mrr,
            COALESCE(avg(EXTRACT(EPOCH FROM (COALESCE(canceled_at, now()) - started_at)) / 2629800.0), 0) AS avg_months
-      FROM stripe_subscriptions WHERE started_at IS NOT NULL
+      FROM stripe_subscriptions
+     WHERE started_at IS NOT NULL AND status != 'expired'
   `);
 
   const build = (r: Record<string, unknown>, source: "skio" | "stripe"): SubscriptionRetention => {
@@ -318,7 +321,8 @@ export async function getRetentionCurve(maxMonths = 12): Promise<RetentionCurveP
       SELECT started_at, canceled_at,
              EXTRACT(EPOCH FROM (now() - started_at)) / 2629800.0 AS age_months,
              EXTRACT(EPOCH FROM (COALESCE(canceled_at, now()) - started_at)) / 2629800.0 AS lived_months
-        FROM stripe_subscriptions WHERE started_at IS NOT NULL
+        FROM stripe_subscriptions
+       WHERE started_at IS NOT NULL AND status != 'expired'
     )
     SELECT months.m AS months_since_start,
            (SELECT count(*) FILTER (WHERE lived_months >= months.m)::float

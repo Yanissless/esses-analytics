@@ -38,6 +38,8 @@ if "%~1"=="" (
   echo   metrics          rebuild order_profit + daily_metrics
   echo   validate         check live data against its invariants
   echo   review           flagged-order review queue
+  echo   digest:preview   print the daily digest email without sending it
+  echo   digest:send      actually email the daily digest ^(CPR/churn/subs/spend^)
   echo   test / lint / build / start / dev
   echo.
   echo Any pnpm command works too, e.g.  run.cmd install

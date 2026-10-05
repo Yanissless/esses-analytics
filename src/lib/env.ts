@@ -86,9 +86,16 @@ const envSchema = z.object({
   GA4_CREDENTIALS_PATH: z.string().optional(),
   // EasyShip (international DDP shipping + prepaid duties)
   EASYSHIP_API_TOKEN: z.string().optional(),
-  // Mailgun (newsletter)
+  // Mailgun — sends the daily digest email (Section 9/14) and, later, the newsletter.
   MAILGUN_API_KEY: z.string().optional(),
   MAILGUN_DOMAIN: z.string().optional(),
+  /** "Name <address>" the digest sends from. Defaults to reports@<MAILGUN_DOMAIN>. */
+  MAILGUN_FROM: z.string().optional(),
+  /** https://api.eu.mailgun.net for an EU-region Mailgun account. Defaults to US. */
+  MAILGUN_API_BASE: z.string().url().optional(),
+  /** Comma-separated recipient list for the daily digest, e.g.
+   *  "sam@essesmag.com,johnny@essesmag.com,ojus@essesmag.com,hugh@essesmag.com". */
+  DIGEST_RECIPIENTS: z.string().optional(),
   // Slack (digest + failure alerts)
   SLACK_BOT_TOKEN: z.string().optional(),
   SLACK_DIGEST_CHANNEL: z.string().optional(),
@@ -108,8 +115,22 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * A blank line in a real `.env` file (`MAILGUN_API_BASE=`, left unset on purpose) is an
+ * empty STRING, not `undefined` — `.optional()` only skips validation for the latter, so
+ * a refined optional field like `.url().optional()` rejects it outright. Found 23 Sep 2026
+ * when exactly that combination broke `run.cmd validate` on a normal, unconfigured .env.
+ * Blanking every empty string to `undefined` before validation fixes it for every current
+ * and future optional field at once, rather than special-casing each one.
+ */
+function blankToUndefined(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(env)) out[k] = v === "" ? undefined : v;
+  return out;
+}
+
 function loadEnv(): Env {
-  const parsed = envSchema.safeParse(process.env);
+  const parsed = envSchema.safeParse(blankToUndefined(process.env));
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`)

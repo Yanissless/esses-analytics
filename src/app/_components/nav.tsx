@@ -116,6 +116,7 @@ const GROUPS: NavGroup[] = [
       { href: "/profit", label: "Profit", capability: "margin" },
       { href: "/discounts", label: "Discount codes", capability: "margin" },
       { href: "/international", label: "International margin", capability: "margin" },
+      { href: "/ltv-cac", label: "LTV & CAC", capability: "margin" },
     ],
   },
   // One entry, not two. The goal planner is reached from the targets card on /forecast,

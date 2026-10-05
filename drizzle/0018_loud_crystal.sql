@@ -1,0 +1,1 @@
+ALTER TABLE "ltv_cac_assumptions" ADD COLUMN "cycle_months" integer DEFAULT 12 NOT NULL;

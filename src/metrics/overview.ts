@@ -48,7 +48,17 @@ export interface RevenueSummary {
   lastOrderDate: string | null;
 }
 
-export async function getRevenueSummary(): Promise<RevenueSummary> {
+/**
+ * `since`/`until` are optional (inclusive, `YYYY-MM-DD`) so this keeps working
+ * unfiltered for its all-time callers (the AI analyst, `/costs`' data-bounds
+ * lookup) while the overview page can scope it to whatever's picked in the
+ * `DateRangePicker`.
+ */
+export async function getRevenueSummary(since?: string, until?: string): Promise<RevenueSummary> {
+  const dateFilter = since && until ? sql`AND processed_at::date BETWEEN ${since} AND ${until}` : sql``;
+  const stripeDateFilter =
+    since && until ? sql`AND invoiced_at::date BETWEEN ${since} AND ${until}` : sql``;
+
   const [shopify] = await rows<Record<string, unknown>>(sql`
     SELECT
       COALESCE(sum(total_amount), 0)          AS gross,
@@ -59,11 +69,11 @@ export async function getRevenueSummary(): Promise<RevenueSummary> {
       min(processed_at)::date::text           AS first_date,
       max(processed_at)::date::text           AS last_date,
       COALESCE(sum(total_amount) FILTER (WHERE acquisition_order), 0) AS new_cust_revenue
-    FROM orders WHERE ${COUNTABLE}
+    FROM orders WHERE ${COUNTABLE} ${dateFilter}
   `);
 
   const [stripe] = await rows<Record<string, unknown>>(sql`
-    SELECT COALESCE(sum(amount_paid_amount), 0) AS paid FROM stripe_invoices
+    SELECT COALESCE(sum(amount_paid_amount), 0) AS paid FROM stripe_invoices WHERE true ${stripeDateFilter}
   `);
 
   const [cust] = await rows<Record<string, unknown>>(sql`
@@ -102,22 +112,30 @@ export interface MonthlyPoint {
   orders: number;
 }
 
-/** Combined monthly revenue series across both money sources. */
-export async function getMonthlyRevenue(): Promise<MonthlyPoint[]> {
+/**
+ * Combined monthly revenue series across both money sources. Unfiltered by default
+ * (the trend behind the headline numbers); pass `since`/`until` to scope it to the
+ * same window as the rest of the page — with a short window (e.g. "7 days") this
+ * naturally collapses to one partial-month bar, which is correct, not a bug.
+ */
+export async function getMonthlyRevenue(since?: string, until?: string): Promise<MonthlyPoint[]> {
+  const dateFilter = since && until ? sql`AND processed_at::date BETWEEN ${since} AND ${until}` : sql``;
+  const stripeDateFilter =
+    since && until ? sql`AND invoiced_at::date BETWEEN ${since} AND ${until}` : sql``;
   const data = await rows<Record<string, unknown>>(sql`
     WITH shop AS (
       SELECT to_char(date_trunc('month', processed_at), 'YYYY-MM') AS m,
              sum(total_amount - total_refunded_amount) AS net,
              count(*) AS orders
       FROM orders
-      WHERE ${COUNTABLE} AND processed_at IS NOT NULL
+      WHERE ${COUNTABLE} AND processed_at IS NOT NULL ${dateFilter}
       GROUP BY 1
     ),
     stripe AS (
       SELECT to_char(date_trunc('month', invoiced_at), 'YYYY-MM') AS m,
              sum(amount_paid_amount) AS paid
       FROM stripe_invoices
-      WHERE invoiced_at IS NOT NULL
+      WHERE invoiced_at IS NOT NULL ${stripeDateFilter}
       GROUP BY 1
     )
     SELECT COALESCE(shop.m, stripe.m) AS month,
@@ -143,12 +161,13 @@ export interface OrderMix {
 }
 
 /** Revenue split by order type (one-time vs Skio subscription). */
-export async function getOrderMix(): Promise<OrderMix[]> {
+export async function getOrderMix(since?: string, until?: string): Promise<OrderMix[]> {
+  const dateFilter = since && until ? sql`AND processed_at::date BETWEEN ${since} AND ${until}` : sql``;
   const data = await rows<Record<string, unknown>>(sql`
     SELECT order_type,
            count(*) AS orders,
            sum(total_amount - total_refunded_amount) AS net
-    FROM orders WHERE ${COUNTABLE}
+    FROM orders WHERE ${COUNTABLE} ${dateFilter}
     GROUP BY 1 ORDER BY 3 DESC
   `);
   return data.map((r) => ({
@@ -276,19 +295,30 @@ export interface TopCustomer {
 /**
  * Unified LTV leaderboard — the differentiator over stock StoreHero: value per
  * customer summed across Shopify orders AND Stripe invoices.
+ *
+ * Unfiltered by default (all-time LTV); pass `since`/`until` to rank by revenue
+ * within a window instead — e.g. "who mattered most this month" rather than
+ * "who has spent the most ever".
  */
-export async function getTopCustomers(limit = 10): Promise<TopCustomer[]> {
+export async function getTopCustomers(
+  limit = 10,
+  since?: string,
+  until?: string,
+): Promise<TopCustomer[]> {
+  const dateFilter = since && until ? sql`AND processed_at::date BETWEEN ${since} AND ${until}` : sql``;
+  const stripeDateFilter =
+    since && until ? sql`AND invoiced_at::date BETWEEN ${since} AND ${until}` : sql``;
   const data = await rows<Record<string, unknown>>(sql`
     WITH shop AS (
       SELECT customer_id,
              sum(total_amount - total_refunded_amount) AS net,
              count(*) AS orders
-      FROM orders WHERE ${COUNTABLE} AND customer_id IS NOT NULL
+      FROM orders WHERE ${COUNTABLE} AND customer_id IS NOT NULL ${dateFilter}
       GROUP BY 1
     ),
     strp AS (
       SELECT customer_id, sum(amount_paid_amount) AS paid
-      FROM stripe_invoices WHERE customer_id IS NOT NULL
+      FROM stripe_invoices WHERE customer_id IS NOT NULL ${stripeDateFilter}
       GROUP BY 1
     )
     SELECT c.name, c.email,

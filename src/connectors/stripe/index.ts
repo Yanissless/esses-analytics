@@ -36,7 +36,11 @@ async function loadInvoices(created?: { gte: number; lte?: number }): Promise<nu
   let count = 0;
   for await (const inv of stripe().invoices.list({
     limit: 100,
-    expand: ["data.customer"],
+    // `discounts.promotion_code` is the human-facing code ("cr76878bub"); without the
+    // nested expand it comes back as a bare ID. Verified live 22 Sep 2026 that discount
+    // data lives on the INVOICE — subscription.discounts came back empty even for a
+    // subscription with a confirmed discounted invoice. See ingest.ts.
+    expand: ["data.customer", "data.discounts", "data.discounts.promotion_code"],
     ...(created ? { created } : {}),
   })) {
     await ingestInvoice(inv);

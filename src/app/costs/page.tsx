@@ -14,8 +14,53 @@ import { getMarginBoundary } from "@/metrics/margin-boundary.server";
 import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 import { CostForms, MarginBoundaryForm } from "./forms";
+import { saveProductCostInline } from "./actions";
 
 export const dynamic = "force-dynamic";
+
+const cellInput =
+  "w-20 rounded-md border border-neutral-300 bg-white px-1.5 py-1 text-right text-sm tabular-nums text-neutral-900 outline-none focus:border-neutral-500 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100";
+const cellSave =
+  "rounded-md border border-neutral-300 px-1.5 py-1 text-[11px] font-medium text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800";
+
+/**
+ * One editable cost cell — a real per-cell form, not a table-wide one, so saving
+ * one product's cost can never accidentally resubmit a row someone else is
+ * mid-edit on. Posts to the same `saveProductCost` action the manual entry form
+ * below uses, keyed by today's date so every edit is a fresh effective-dated row
+ * rather than rewriting history.
+ */
+function CostCell({
+  sku,
+  origin,
+  cents,
+  today,
+}: {
+  sku: string;
+  origin: "US" | "UK" | "default";
+  cents: number | null;
+  today: string;
+}) {
+  return (
+    <form action={saveProductCostInline} className="flex items-center justify-end gap-1">
+      <input type="hidden" name="sku" value={sku} />
+      <input type="hidden" name="origin" value={origin} />
+      <input type="hidden" name="effectiveDate" value={today} />
+      <span className="text-neutral-400">$</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        name="cost"
+        defaultValue={cents == null ? "" : (cents / 100).toFixed(2)}
+        placeholder="11.48"
+        className={cellInput}
+      />
+      <button type="submit" className={cellSave}>
+        Save
+      </button>
+    </form>
+  );
+}
 
 export default async function CostsPage() {
   const user = await requireAdmin();
@@ -54,6 +99,7 @@ export default async function CostsPage() {
   );
   const uncostedUnits = uncostedSkus.reduce((sum, s) => sum + s.units, 0);
   const totalUnits = skus.reduce((sum, s) => sum + s.units, 0);
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="min-h-full bg-neutral-50 dark:bg-neutral-950">
@@ -85,7 +131,7 @@ export default async function CostsPage() {
 
         <Card
           title="Items sold"
-          subtitle="Ordered by units — set costs top-down for the biggest margin impact"
+          subtitle="Every product that's sold, editable in place — set costs top-down for the biggest margin impact. US/UK for print copies whose cost differs by fulfilment origin; Default for everything else (merch, stockist packages)."
         >
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -103,25 +149,50 @@ export default async function CostsPage() {
                 {skus.map((s) => {
                   const none =
                     s.costUsCents == null && s.costUkCents == null && s.costDefaultCents == null;
+                  if (!s.sku) {
+                    return (
+                      <tr key={`nosku-${s.title ?? ""}`}>
+                        <td className="py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs text-neutral-400">
+                              (no cost key)
+                            </span>
+                            {none ? <Badge tone="amber">no cost</Badge> : null}
+                          </div>
+                          <div className="text-xs text-neutral-500">{s.title ?? "—"}</div>
+                        </td>
+                        <td className="py-2 text-right tabular-nums">{formatNum(s.units)}</td>
+                        <td className="py-2 text-right tabular-nums">{formatUsd(s.grossCents)}</td>
+                        <td className="py-2 text-right text-neutral-400" colSpan={3}>
+                          not costable — no SKU or variant id
+                        </td>
+                      </tr>
+                    );
+                  }
                   return (
-                    <tr key={`${s.sku ?? "nosku"}-${s.title ?? ""}`}>
+                    <tr key={`${s.sku}-${s.title ?? ""}`}>
                       <td className="py-2">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs">{s.sku ?? "—"}</span>
+                          <span className="font-mono text-xs">{s.sku}</span>
                           {none ? <Badge tone="amber">no cost</Badge> : null}
                         </div>
                         <div className="text-xs text-neutral-500">{s.title ?? "—"}</div>
                       </td>
                       <td className="py-2 text-right tabular-nums">{formatNum(s.units)}</td>
                       <td className="py-2 text-right tabular-nums">{formatUsd(s.grossCents)}</td>
-                      <td className="py-2 text-right tabular-nums">
-                        {s.costUsCents == null ? "—" : formatUsd(s.costUsCents)}
+                      <td className="py-2">
+                        <CostCell sku={s.sku} origin="US" cents={s.costUsCents} today={today} />
                       </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {s.costUkCents == null ? "—" : formatUsd(s.costUkCents)}
+                      <td className="py-2">
+                        <CostCell sku={s.sku} origin="UK" cents={s.costUkCents} today={today} />
                       </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {s.costDefaultCents == null ? "—" : formatUsd(s.costDefaultCents)}
+                      <td className="py-2">
+                        <CostCell
+                          sku={s.sku}
+                          origin="default"
+                          cents={s.costDefaultCents}
+                          today={today}
+                        />
                       </td>
                     </tr>
                   );
@@ -129,6 +200,13 @@ export default async function CostsPage() {
               </tbody>
             </table>
           </div>
+          <p className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">
+            Type a cost and hit <strong>Save</strong> — it writes a new row effective today, so
+            past margin keeps whatever cost was true at the time. For a{" "}
+            <strong>stockist package</strong>, enter the cost for the whole package (copies ×
+            per-copy print cost), not a single copy — the line item&rsquo;s quantity is packages,
+            not issues.
+          </p>
         </Card>
 
         {/* ---- how much a copy can cost, and what it costs today ---- */}

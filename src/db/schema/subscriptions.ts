@@ -113,6 +113,22 @@ export const stripeInvoices = pgTable(
     amountDueAmount: money("amount_due_amount").notNull().default(0),
     amountPaidAmount: money("amount_paid_amount").notNull().default(0),
 
+    /**
+     * Promotion code(s) actually redeemed on this charge — added 22 Sep 2026.
+     * Lives on the INVOICE, not the subscription: `subscription.discounts` came
+     * back empty even on a subscription with a confirmed discounted invoice
+     * (verified live against Stripe for sub_1UHt5eLEEFjkWG5ni3rGlJMo — $80 off
+     * a $100 charge, code `cr76878bub`, 182 redemptions). Same array shape as
+     * `orders.discount_codes` on purpose, so the existing marketing-code
+     * helpers (`isMarketingPromo`, `OPS_DISCOUNT_SQL_REGEX` in metrics/churn.ts)
+     * work unchanged against Stripe codes too.
+     */
+    discountCodes: text("discount_codes").array(),
+    /** Total discounted off this invoice, in cents — Stripe's own
+     *  `total_discount_amounts`, summed. Real dollars off THIS charge, not
+     *  the coupon's abstract percent/amount-off terms. */
+    discountAmount: money("discount_amount").notNull().default(0),
+
     invoicedAt: timestamp("invoiced_at", { withTimezone: true }),
     periodStart: timestamp("period_start", { withTimezone: true }),
     periodEnd: timestamp("period_end", { withTimezone: true }),

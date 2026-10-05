@@ -9,9 +9,12 @@ import {
   getTopCustomers,
 } from "@/metrics/overview";
 import { getPeriodMetrics } from "@/metrics/rollup";
+import { resolvePageRange } from "@/lib/date-range.server";
+import { delta } from "@/lib/date-range";
 import { RevenueChart } from "./_components/revenue-chart";
 import { Nav } from "./_components/nav";
-import { Badge, Card, Stat, formatNum, formatUsd } from "./_components/ui";
+import { DateRangePicker } from "./_components/date-range-picker";
+import { Badge, Card, DeltaBadge, Stat, formatNum, formatUsd } from "./_components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -21,33 +24,50 @@ const ORDER_TYPE_LABELS: Record<string, string> = {
   subscription_stripe_fulfillment: "Stripe fulfillment (excluded)",
 };
 
-export default async function Overview() {
+export default async function Overview({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requireCapability("revenue");
+  // Defaults to "all time" — the range this page has always shown — so adding the
+  // picker doesn't change what anyone sees today; it just lets them narrow to a
+  // day/week/month/year from here instead of navigating to a page that has one.
+  const { range, compareMode, comparison, bounds } = await resolvePageRange(
+    await searchParams,
+    "all",
+  );
+  const since = range.since;
+  const until = range.until;
+
   const [summary, monthly, mix, subs, quality, topCustomers] = await Promise.all([
-    getRevenueSummary(),
-    getMonthlyRevenue(),
-    getOrderMix(),
+    getRevenueSummary(since, until),
+    getMonthlyRevenue(since, until),
+    getOrderMix(since, until),
     getSubscriptionHealth(),
     getDataQuality(),
-    getTopCustomers(10),
+    getTopCustomers(10, since, until),
   ]);
 
   // Efficiency and margin come from the daily_metrics rollup (Section 9) rather
   // than being recomputed per page load.
-  const period = await getPeriodMetrics(
-    summary.firstOrderDate ?? "2025-01-01",
-    summary.lastOrderDate ?? new Date().toISOString().slice(0, 10),
-  );
+  const [period, priorSummary, priorPeriod] = await Promise.all([
+    getPeriodMetrics(since, until),
+    comparison ? getRevenueSummary(comparison.since, comparison.until) : Promise.resolve(null),
+    comparison ? getPeriodMetrics(comparison.since, comparison.until) : Promise.resolve(null),
+  ]);
+  // Only worth showing once the comparison window is fully inside the data —
+  // otherwise "down 40%" is really "we don't have last year's Q1 yet".
+  const canCompare = comparison !== null && !comparison.partial;
+  const d = (cur: number | null, prev: number | null) =>
+    canCompare && cur != null && prev != null ? delta(cur, prev) : null;
+
   const ratioText = (v: number | null, digits = 2) => (v == null ? "—" : v.toFixed(digits));
   const pctText = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
 
   const cogsPct = quality.totalLineItems
     ? Math.round((quality.lineItemsMissingCogs / quality.totalLineItems) * 100)
     : 0;
-  const range =
-    summary.firstOrderDate && summary.lastOrderDate
-      ? `${summary.firstOrderDate} → ${summary.lastOrderDate}`
-      : "no orders yet";
 
   return (
     <div className="min-h-full bg-neutral-50 dark:bg-neutral-950">
@@ -61,7 +81,7 @@ export default async function Overview() {
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Overview</h1>
             <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
-              All revenue sources unified · {range}
+              All revenue sources unified · {range.label}
             </p>
           </div>
           {/* A link, not an instruction. This used to end "Run `pnpm review`", which is a
@@ -81,6 +101,17 @@ export default async function Overview() {
           ) : null}
         </div>
 
+        <DateRangePicker
+          preset={range.preset}
+          compareMode={compareMode}
+          since={range.since}
+          until={range.until}
+          anchor={bounds.anchor}
+          dataStart={bounds.start}
+          lagDays={bounds.lagDays}
+          comparisonUnavailable={comparison === null || comparison.partial}
+        />
+
         {/* Headline numbers */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Stat
@@ -88,21 +119,45 @@ export default async function Overview() {
             value={formatUsd(summary.combinedNetCents)}
             hint="Shopify + Stripe, refunds deducted"
             emphasis
+            trailing={
+              <DeltaBadge
+                delta={d(summary.combinedNetCents, priorSummary?.combinedNetCents ?? null)}
+                polarity="higher-is-better"
+                format={(n) => formatUsd(n)}
+                compareLabel={comparison?.label}
+              />
+            }
           />
           <Stat
             label="Shopify orders (net)"
             value={formatUsd(summary.shopifyNetCents)}
             hint={`${formatNum(summary.paidOrderCount)} paid orders · AOV ${formatUsd(summary.aovCents)}`}
+            trailing={
+              <DeltaBadge
+                delta={d(summary.shopifyNetCents, priorSummary?.shopifyNetCents ?? null)}
+                polarity="higher-is-better"
+                format={(n) => formatUsd(n)}
+                compareLabel={comparison?.label}
+              />
+            }
           />
           <Stat
             label="Stripe subscriptions"
             value={formatUsd(summary.stripePaidCents)}
             hint="Print subscriptions, paid invoices"
+            trailing={
+              <DeltaBadge
+                delta={d(summary.stripePaidCents, priorSummary?.stripePaidCents ?? null)}
+                polarity="higher-is-better"
+                format={(n) => formatUsd(n)}
+                compareLabel={comparison?.label}
+              />
+            }
           />
           <Stat
             label="Active MRR"
             value={formatUsd(subs.combinedMrrCents)}
-            hint={`${formatNum(subs.skioActive + subs.stripeActive)} active subscribers`}
+            hint={`${formatNum(subs.skioActive + subs.stripeActive)} active subscribers · current, not scoped to the range above`}
           />
         </div>
 
@@ -111,19 +166,83 @@ export default async function Overview() {
           subtitle="From the daily_metrics rollup · CM3 is after ad spend"
         >
           <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <Stat label="CM1" value={formatUsd(period.cm1Cents)} hint="after COGS" />
-            <Stat label="CM2" value={formatUsd(period.cm2Cents)} hint="after fulfilment" />
+            <Stat
+              label="CM1"
+              value={formatUsd(period.cm1Cents)}
+              hint="after COGS"
+              trailing={
+                <DeltaBadge
+                  delta={d(period.cm1Cents, priorPeriod?.cm1Cents ?? null)}
+                  polarity="higher-is-better"
+                  format={(n) => formatUsd(n)}
+                  compareLabel={comparison?.label}
+                />
+              }
+            />
+            <Stat
+              label="CM2"
+              value={formatUsd(period.cm2Cents)}
+              hint="after fulfilment"
+              trailing={
+                <DeltaBadge
+                  delta={d(period.cm2Cents, priorPeriod?.cm2Cents ?? null)}
+                  polarity="higher-is-better"
+                  format={(n) => formatUsd(n)}
+                  compareLabel={comparison?.label}
+                />
+              }
+            />
             <Stat
               label="CM3"
               value={formatUsd(period.cm3Cents)}
               hint={`${pctText(period.cm3Pct)} after ad spend`}
+              trailing={
+                <DeltaBadge
+                  delta={d(period.cm3Cents, priorPeriod?.cm3Cents ?? null)}
+                  polarity="higher-is-better"
+                  format={(n) => formatUsd(n)}
+                  compareLabel={comparison?.label}
+                />
+              }
             />
-            <Stat label="MER" value={ratioText(period.mer)} hint="revenue ÷ ad spend" />
-            <Stat label="aMER" value={ratioText(period.amer)} hint="new-cust rev ÷ spend" />
+            <Stat
+              label="MER"
+              value={ratioText(period.mer)}
+              hint="revenue ÷ ad spend"
+              trailing={
+                <DeltaBadge
+                  delta={d(period.mer, priorPeriod?.mer ?? null)}
+                  polarity="higher-is-better"
+                  format={(n) => `${n.toFixed(2)}×`}
+                  compareLabel={comparison?.label}
+                />
+              }
+            />
+            <Stat
+              label="aMER"
+              value={ratioText(period.amer)}
+              hint="new-cust rev ÷ spend"
+              trailing={
+                <DeltaBadge
+                  delta={d(period.amer, priorPeriod?.amer ?? null)}
+                  polarity="higher-is-better"
+                  format={(n) => `${n.toFixed(2)}×`}
+                  compareLabel={comparison?.label}
+                />
+              }
+            />
             <Stat
               label="CAC"
               value={period.cac == null ? "—" : formatUsd(period.cac)}
               hint={`${formatNum(period.newCustomers)} new customers`}
+              trailing={
+                <DeltaBadge
+                  delta={d(period.cac, priorPeriod?.cac ?? null)}
+                  polarity="lower-is-better"
+                  format={(n) => formatUsd(n)}
+                  compareLabel={comparison?.label}
+                />
+              }
             />
           </div>
           {period.adSpendCents === 0 ? (

@@ -120,6 +120,34 @@
       "when": 1788205850101,
       "tag": "0016_grey_the_initiative",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788534697162,
+      "tag": "0017_aspiring_mordo",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788538057922,
+      "tag": "0018_loud_crystal",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789502329633,
+      "tag": "0019_flaky_gamora",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790101692665,
+      "tag": "0020_adorable_guardian",
+      "breakpoints": true
     }
   ]
 }

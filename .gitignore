@@ -43,6 +43,13 @@ yarn-error.log*
 *.dump
 *.sql.bak
 
+# weekly handoff packages (EXPORT-FOR-HUGH.cmd) — contain a real customer DB dump
+/handoff-exports/
+
+# local visual preview of the daily digest (scripts/send-daily-digest.ts) — real business numbers
+/digest-preview.html
+/digest-preview-*.html
+
 # drizzle: keep migrations, ignore transient meta journal only if desired (we keep it)
 
 # vercel

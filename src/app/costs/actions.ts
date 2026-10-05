@@ -114,6 +114,16 @@ export async function saveProductCost(
   return { ok: `Saved ${sku} (${origin}) at $${(cents / 100).toFixed(2)}.` };
 }
 
+/**
+ * Same as `saveProductCost`, but void-returning so it can be bound straight onto
+ * a `<form action>` (a per-row inline table cell isn't wired to a useActionState
+ * hook, so it has nowhere to put `{error, ok}`). Errors are swallowed here on
+ * purpose — the manual entry form below is the one place that surfaces them.
+ */
+export async function saveProductCostInline(formData: FormData): Promise<void> {
+  await saveProductCost({}, formData);
+}
+
 export async function deleteProductCost(formData: FormData): Promise<void> {
   await requireAdmin();
   const sku = String(formData.get("sku") ?? "");

@@ -14,6 +14,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed.ts",
+    "add:user": "tsx scripts/add-team-member.ts",
     "backfill": "tsx scripts/backfill.ts",
     "sync": "tsx scripts/sync.ts",
     "import:csv": "tsx scripts/import-csv.ts",
@@ -23,6 +24,7 @@
     "set:goals": "tsx scripts/set-goals.ts",
     "review": "tsx scripts/review-orders.ts",
     "seed:costs": "tsx scripts/seed-cost-model.ts",
+    "seed:ltv-cac": "tsx scripts/seed-ltv-cac.ts",
     "import:shipping": "tsx scripts/import-shipping-report.ts",
     "check:shopify": "tsx scripts/check-shopify.ts",
     "check:ads": "tsx scripts/check-ads.ts",
@@ -33,7 +35,9 @@
     "check:meta": "tsx scripts/check-meta.ts",
     "check:analyst": "tsx scripts/check-analyst.ts",
     "check:ga4": "tsx scripts/check-ga4.ts",
-    "validate": "tsx scripts/validate.ts"
+    "validate": "tsx scripts/validate.ts",
+    "digest:preview": "tsx scripts/send-daily-digest.ts",
+    "digest:send": "tsx scripts/send-daily-digest.ts --send"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

@@ -24,6 +24,8 @@ import { buildChannelHealthList, toChannelPeriod } from "@/metrics/channel-healt
 import { getSourceFreshness } from "@/lib/freshness.server";
 import { buildCac, CAC_BASES, isCacBasis, type CacBasis } from "@/metrics/cac-basis";
 import { getFreeIssueCost } from "@/metrics/promo-cohorts";
+import { getAcquisitionTags, getCampaignCandidates, getFlagshipCac } from "@/metrics/flagship-cac";
+import { AcquisitionSettings } from "./acquisition-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +81,7 @@ export default async function MarketingPage({
   const since = range.since;
   const until = range.until;
 
-  const [period, channels, coverage, reconciliation, trend, freshness, freeIssues] =
+  const [period, channels, coverage, reconciliation, trend, freshness, freeIssues, flagshipCac, acquisitionTags, campaignCandidates] =
     await Promise.all([
     getPeriodMetrics(since, until),
     getChannelPerformance(since, until, model, 7, basis),
@@ -88,6 +90,9 @@ export default async function MarketingPage({
     getPlatformTrend(since, until, "meta"),
     getSourceFreshness(),
     getFreeIssueCost(since, until),
+    getFlagshipCac(since, until),
+    getAcquisitionTags(),
+    getCampaignCandidates(),
   ]);
 
   // The comparison period is now fetched for CHANNELS as well as the blended headline.
@@ -267,6 +272,20 @@ export default async function MarketingPage({
                 format={(n) => formatUsd(n)}
                 compareLabel={`${comparison?.label ?? ""} (marketing only)`}
               />
+            }
+          />
+          {/* Flagship CAC — deliberately separate from Blended CAC above. Blended sums every
+              campaign including pure-awareness ones; this sums only what's tagged as the
+              acquisition funnel below, so it reconciles against the marketing team's own
+              weekly tracker instead of averaging in spend that was never meant to be judged
+              on cost-per-signup. Null (not $0) when nothing is tagged. */}
+          <Stat
+            label="Flagship CAC"
+            value={flagshipCac.cac != null ? formatUsd(flagshipCac.cac) : "—"}
+            hint={
+              flagshipCac.noneTagged
+                ? "no acquisition campaign tagged — see below"
+                : `${formatNum(flagshipCac.results)} results · ${flagshipCac.campaigns.map((c) => c.campaignName).join(", ") || "0 campaigns with spend"}`
             }
           />
           {/* Breakeven MER is derived from CM2, and its hint states the margin % outright,
@@ -653,6 +672,8 @@ export default async function MarketingPage({
             </div>
           </Card>
         ) : null}
+
+        <AcquisitionSettings tagged={acquisitionTags} candidates={campaignCandidates} />
       </main>
     </div>
   );

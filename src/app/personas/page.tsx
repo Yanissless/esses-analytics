@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireCapability } from "@/lib/auth/current-user";
 import {
   getGeoConcentration,
@@ -6,7 +7,7 @@ import {
   META_CUSTOM_AUDIENCE_MIN,
   META_LOOKALIKE_SOURCE_MIN,
 } from "@/metrics/personas";
-import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
+import { Badge, Card, InfoTip, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 
 export const dynamic = "force-dynamic";
@@ -63,8 +64,8 @@ export default async function PersonasPage() {
           <Stat
             label="Full-price retention edge"
             value={
-              fullPrice?.churnByFirstRenewalPct != null && discount?.churnByFirstRenewalPct != null
-                ? `${(discount.churnByFirstRenewalPct / fullPrice.churnByFirstRenewalPct).toFixed(1)}×`
+              fullPrice?.churnedBeforeFirstRenewalPct != null && discount?.churnedBeforeFirstRenewalPct != null
+                ? `${(discount.churnedBeforeFirstRenewalPct / fullPrice.churnedBeforeFirstRenewalPct).toFixed(1)}×`
                 : "—"
             }
             hint="discount-dependent churn ÷ full-price churn"
@@ -86,12 +87,12 @@ export default async function PersonasPage() {
           <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
             <strong>Seed your Lookalike from full-price buyers, not from your best customers.</strong>{" "}
             The top-decile cohort is the ideal customer — LTV {money(topDecile.ltvCents)},{" "}
-            {pct(topDecile.churnByFirstRenewalPct)} churn — but only{" "}
+            {pct(topDecile.churnedBeforeFirstRenewalPct)} churn — but only{" "}
             {formatNum(topDecile.contactableCustomers)} are contactable, well under Meta&rsquo;s{" "}
             {formatNum(META_LOOKALIKE_SOURCE_MIN)} floor for a Lookalike source. Full-price buyers are{" "}
             {formatNum(fullPrice.contactableCustomers)} strong, carry LTV {money(fullPrice.ltvCents)},
-            and churn {pct(fullPrice.churnByFirstRenewalPct)} against{" "}
-            {pct(discount.churnByFirstRenewalPct)} for customers who only ever buy on a discount.
+            and churn {pct(fullPrice.churnedBeforeFirstRenewalPct)} against{" "}
+            {pct(discount.churnedBeforeFirstRenewalPct)} for customers who only ever buy on a discount.
             That&rsquo;s the largest high-quality seed you have.
           </div>
         ) : null}
@@ -105,14 +106,82 @@ export default async function PersonasPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
-                  <th className="pb-2 font-medium">Segment</th>
-                  <th className="pb-2 text-right font-medium">Customers</th>
-                  <th className="pb-2 text-right font-medium">LTV</th>
-                  <th className="pb-2 text-right font-medium">AOV</th>
-                  <th className="pb-2 text-right font-medium">Orders/cust</th>
-                  <th className="pb-2 text-right font-medium">Subscribers</th>
-                  <th className="pb-2 text-right font-medium">Churn by 1st renewal</th>
-                  <th className="pb-2 font-medium">Meta audience</th>
+                  <th className="pb-2 pr-4 font-medium">Segment</th>
+                  <th className="pb-2 pr-4 text-right font-medium">Customers</th>
+                  <th className="pb-2 pr-4 text-right font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      LTV
+                      <InfoTip label="How this is calculated">
+                        <strong>Not the discounted, contribution-based LTV used for LTV:CAC.</strong>{" "}
+                        This is simpler: each customer&rsquo;s realised net revenue to date — Shopify
+                        orders (net of refunds) plus Stripe invoices paid, averaged across the
+                        segment. No cost of goods, no churn adjustment, no discounting to present
+                        value. Useful for comparing which segments have paid the most so far. For
+                        the CAC-comparable figure — survival-weighted, discounted, contribution-based
+                        — see{" "}
+                        <Link href="/ltv-cac" className="underline decoration-dotted underline-offset-2">
+                          LTV &amp; CAC
+                        </Link>
+                        . Source: <code>getPersonaProfiles</code> in <code>metrics/personas.ts</code>.
+                      </InfoTip>
+                    </span>
+                  </th>
+                  <th className="pb-2 pr-4 text-right font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      AOV
+                      <InfoTip label="How this is calculated" align="right">
+                        Shopify revenue ÷ Shopify paid orders, for this segment. Shopify only —
+                        Stripe invoices aren&rsquo;t orders and are excluded from this ratio (they
+                        do count in LTV, to the left).
+                      </InfoTip>
+                    </span>
+                  </th>
+                  <th className="pb-2 pr-4 text-right font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      Orders/cust
+                      <InfoTip label="How this is calculated" align="right">
+                        Average number of paid Shopify orders per customer in the segment. Shopify
+                        only, same as AOV — a Stripe-only print subscriber shows 0 here even though
+                        they have real LTV.
+                      </InfoTip>
+                    </span>
+                  </th>
+                  <th className="pb-2 pr-4 text-right font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      Subscribers
+                      <InfoTip label="How this is calculated" align="right">
+                        Share of this segment&rsquo;s customers who hold or have held a subscription
+                        (Skio or Stripe) — not the share who are currently active.
+                      </InfoTip>
+                    </span>
+                  </th>
+                  <th className="pb-2 pr-4 text-right font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      Before 1st renewal
+                      <InfoTip label="How this is calculated" align="right">
+                        Of this segment&rsquo;s subscriptions old enough to have faced a first
+                        renewal (age ≥ their own plan&rsquo;s billing cycle), the share that
+                        cancelled before ever being billed a second time. Same metric as the{" "}
+                        <code>/churn</code> page&rsquo;s &ldquo;Before 1st renewal&rdquo; column —
+                        see there for the full definition and why it&rsquo;s the fair way to compare
+                        cohorts of different ages. Null/&ldquo;no mature subs&rdquo; means nobody in
+                        the segment has reached a renewal yet, which is common for annual plans.
+                      </InfoTip>
+                    </span>
+                  </th>
+                  <th className="pb-2 font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      Meta audience
+                      <InfoTip label="How this is calculated" align="right">
+                        &ldquo;Contactable&rdquo; = customers in the segment with an email on file —
+                        the population Meta could actually match. &ldquo;Custom only&rdquo; means
+                        contactable ≥ {formatNum(META_CUSTOM_AUDIENCE_MIN)} (Meta&rsquo;s Custom
+                        Audience minimum); &ldquo;Lookalike + Custom&rdquo; means contactable ≥{" "}
+                        {formatNum(META_LOOKALIKE_SOURCE_MIN)} (Meta&rsquo;s Lookalike source
+                        minimum). &ldquo;Too small&rdquo; is below both.
+                      </InfoTip>
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -120,7 +189,7 @@ export default async function PersonasPage() {
                   const thinChurn = p.matureSubscriptions > 0 && p.matureSubscriptions < 30;
                   return (
                     <tr key={p.segment}>
-                      <td className="py-2">
+                      <td className="py-2 pr-4">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{p.label}</span>
                           {p.customers < 25 ? <Badge tone="amber">tiny</Badge> : null}
@@ -129,30 +198,32 @@ export default async function PersonasPage() {
                           {p.definition}
                         </div>
                       </td>
-                      <td className="py-2 text-right tabular-nums">
+                      <td className="py-2 pr-4 text-right tabular-nums">
                         {formatNum(p.customers)}
                         <div className="text-xs text-neutral-500">{pct(p.shareOfPaying)}</div>
                       </td>
-                      <td className="py-2 text-right font-medium tabular-nums">
+                      <td className="py-2 pr-4 text-right font-medium tabular-nums">
                         {money(p.ltvCents)}
                       </td>
-                      <td className="py-2 text-right tabular-nums">{money(p.aovCents)}</td>
-                      <td className="py-2 text-right tabular-nums">
+                      <td className="py-2 pr-4 text-right tabular-nums">{money(p.aovCents)}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">
                         {p.ordersPerCustomer?.toFixed(1) ?? "—"}
                       </td>
-                      <td className="py-2 text-right tabular-nums">{pct(p.subscriberShare)}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">
+                        {pct(p.subscriberShare)}
+                      </td>
                       <td
-                        className={`py-2 text-right tabular-nums ${
-                          p.churnByFirstRenewalPct == null
+                        className={`py-2 pr-4 text-right tabular-nums ${
+                          p.churnedBeforeFirstRenewalPct == null
                             ? "text-neutral-400"
-                            : p.churnByFirstRenewalPct > 0.5
+                            : p.churnedBeforeFirstRenewalPct > 0.5
                               ? "text-red-600 dark:text-red-400"
-                              : p.churnByFirstRenewalPct < 0.2
+                              : p.churnedBeforeFirstRenewalPct < 0.2
                                 ? "text-emerald-600 dark:text-emerald-400"
                                 : ""
                         }`}
                       >
-                        {pct(p.churnByFirstRenewalPct)}
+                        {pct(p.churnedBeforeFirstRenewalPct)}
                         <div className="text-xs text-neutral-500">
                           {p.matureSubscriptions === 0
                             ? "no mature subs"
@@ -193,30 +264,42 @@ export default async function PersonasPage() {
         <Card
           title="Where the value is"
           subtitle="Your targeting doc lists UK, Canada and US — this is what those markets are actually worth per customer"
+          info={
+            <>
+              Same definitions as the Segments table above: <strong>LTV</strong> is realised
+              Shopify + Stripe revenue to date, averaged per customer in the market — not the
+              discounted contribution LTV used for CAC comparisons (see{" "}
+              <Link href="/ltv-cac" className="underline decoration-dotted underline-offset-2">
+                LTV &amp; CAC
+              </Link>
+              ). <strong>AOV</strong> is Shopify revenue ÷ Shopify paid orders, so it excludes
+              Stripe. Market is the customer&rsquo;s shipping/billing country from Shopify.
+            </>
+          }
         >
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
-                  <th className="pb-2 font-medium">Market</th>
-                  <th className="pb-2 text-right font-medium">Customers</th>
-                  <th className="pb-2 text-right font-medium">Share</th>
-                  <th className="pb-2 text-right font-medium">LTV</th>
+                  <th className="pb-2 pr-4 font-medium">Market</th>
+                  <th className="pb-2 pr-4 text-right font-medium">Customers</th>
+                  <th className="pb-2 pr-4 text-right font-medium">Share</th>
+                  <th className="pb-2 pr-4 text-right font-medium">LTV</th>
                   <th className="pb-2 text-right font-medium">AOV</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                 {geo.map((g) => (
                   <tr key={g.country ?? "unknown"}>
-                    <td className="py-2">
+                    <td className="py-2 pr-4">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{g.country ?? "(unknown)"}</span>
                         {g.customers < 25 ? <Badge tone="amber">tiny sample</Badge> : null}
                       </div>
                     </td>
-                    <td className="py-2 text-right tabular-nums">{formatNum(g.customers)}</td>
-                    <td className="py-2 text-right tabular-nums">{pct(g.share)}</td>
-                    <td className="py-2 text-right font-medium tabular-nums">
+                    <td className="py-2 pr-4 text-right tabular-nums">{formatNum(g.customers)}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums">{pct(g.share)}</td>
+                    <td className="py-2 pr-4 text-right font-medium tabular-nums">
                       {money(g.ltvCents)}
                     </td>
                     <td className="py-2 text-right tabular-nums">{money(g.aovCents)}</td>
@@ -245,23 +328,34 @@ export default async function PersonasPage() {
           <Card
             title="Segment overlap"
             subtitle="Check before running several campaigns at once — heavily overlapping audiences show the same people the same ads"
+            info={
+              <>
+                <strong>Both</strong> is the count of customers who belong to both segments at
+                once. <strong>Of the smaller</strong> divides that by whichever of the two
+                segments has fewer customers — e.g. if A has 200 and B has 2,000 and 180 are in
+                both, &ldquo;of the smaller&rdquo; reads 90%, because that&rsquo;s the share of A
+                that B&rsquo;s targeting would also reach. Segments are defined by behaviour and
+                are not mutually exclusive on purpose, so most pairs overlap to some degree — 80%+
+                is the threshold worth acting on.
+              </>
+            }
           >
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
-                    <th className="pb-2 font-medium">Segment A</th>
-                    <th className="pb-2 font-medium">Segment B</th>
-                    <th className="pb-2 text-right font-medium">Both</th>
+                    <th className="pb-2 pr-4 font-medium">Segment A</th>
+                    <th className="pb-2 pr-4 font-medium">Segment B</th>
+                    <th className="pb-2 pr-4 text-right font-medium">Both</th>
                     <th className="pb-2 text-right font-medium">Of the smaller</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                   {overlap.slice(0, 14).map((o) => (
                     <tr key={`${o.a}-${o.b}`}>
-                      <td className="py-2 font-mono text-xs">{o.a}</td>
-                      <td className="py-2 font-mono text-xs">{o.b}</td>
-                      <td className="py-2 text-right tabular-nums">
+                      <td className="py-2 pr-4 font-mono text-xs">{o.a}</td>
+                      <td className="py-2 pr-4 font-mono text-xs">{o.b}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">
                         {formatNum(o.bothCustomers)}
                       </td>
                       <td

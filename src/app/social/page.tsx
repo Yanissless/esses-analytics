@@ -9,7 +9,7 @@ import {
   SOCIAL_PLATFORM_METRICS_GAP,
 } from "@/metrics/social";
 import { getSocialInsights, type SocialInsightsSummary } from "@/metrics/social-insights";
-import { Badge, Card, Caveat, Stat, formatNum, formatUsd } from "../_components/ui";
+import { Badge, Card, Caveat, InfoTip, Stat, formatNum, formatUsd } from "../_components/ui";
 import { resolvePageRange } from "@/lib/date-range.server";
 import { Nav } from "../_components/nav";
 import { RefreshButton } from "../_components/refresh-button";
@@ -301,7 +301,16 @@ export default async function SocialPage({
         {socialChurn.length > 0 ? (
           <Card
             title="Do social subscribers stay?"
-            subtitle="The question a social dashboard normally can't answer — churn measured at the first renewal, so cohorts of different ages are comparable"
+            subtitle="The question a social dashboard normally can't answer — churn measured before the first renewal, so cohorts of different ages are comparable"
+            info={
+              <>
+                Same metric as the <code>/churn</code> page: of subscriptions old enough to have
+                faced their first renewal (age ≥ their own plan&rsquo;s billing cycle), the share
+                that cancelled before ever being billed a second time. &ldquo;Mature&rdquo; is that
+                denominator — a channel with 0 mature subscriptions hasn&rsquo;t had anyone reach a
+                renewal yet and can&rsquo;t be judged.
+              </>
+            }
           >
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -309,7 +318,16 @@ export default async function SocialPage({
                   <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
                     <th className="pb-2 font-medium">Channel</th>
                     <th className="pb-2 text-right font-medium">Subscriptions</th>
-                    <th className="pb-2 text-right font-medium">Churn by 1st renewal</th>
+                    <th className="pb-2 text-right font-medium">
+                      <span className="inline-flex items-center gap-1">
+                        Before 1st renewal
+                        <InfoTip label="How this is calculated" align="right">
+                          Of this channel&rsquo;s mature subscriptions, the share that cancelled
+                          before living a full billing cycle. See the Card info icon above for the
+                          full definition.
+                        </InfoTip>
+                      </span>
+                    </th>
                     <th className="pb-2 text-right font-medium">Mature</th>
                     <th className="pb-2 text-right font-medium">Median life</th>
                     <th className="pb-2 text-right font-medium">LTV / sub</th>
@@ -322,12 +340,12 @@ export default async function SocialPage({
                       <td className="py-2 text-right tabular-nums">{formatNum(c.subscriptions)}</td>
                       <td
                         className={`py-2 text-right font-medium tabular-nums ${
-                          (c.churnByFirstRenewalPct ?? 0) > 0.4
+                          (c.churnedBeforeFirstRenewalPct ?? 0) > 0.4
                             ? "text-red-600 dark:text-red-400"
                             : ""
                         }`}
                       >
-                        {pct(c.churnByFirstRenewalPct)}
+                        {pct(c.churnedBeforeFirstRenewalPct)}
                       </td>
                       <td className="py-2 text-right tabular-nums text-neutral-500">
                         {formatNum(c.matureSubscriptions)}

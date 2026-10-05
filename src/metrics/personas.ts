@@ -107,8 +107,8 @@ export interface PersonaProfile {
   ordersPerCustomer: number | null;
   /** Share of the segment holding a subscription in either system. */
   subscriberShare: number | null;
-  /** Churn by first renewal for this segment's subscriptions (maturity-corrected). */
-  churnByFirstRenewalPct: number | null;
+  /** Churned before first renewal, for this segment's subscriptions (maturity-corrected). */
+  churnedBeforeFirstRenewalPct: number | null;
   matureSubscriptions: number;
   /** Share whose orders always carried a marketing promo code. */
   promoUseRate: number | null;
@@ -417,7 +417,7 @@ export async function getPersonaProfiles(): Promise<PersonaProfile[]> {
       aovCents: paidOrders > 0 ? Math.round(shopifyRevenue / paidOrders) : null,
       ordersPerCustomer: numOrNull(r?.orders_per_customer),
       subscriberShare: ratio(num(r?.subscribers), customers),
-      churnByFirstRenewalPct: mature > 0 ? ratio(num(r?.churned_by_first), mature) : null,
+      churnedBeforeFirstRenewalPct: mature > 0 ? ratio(num(r?.churned_by_first), mature) : null,
       matureSubscriptions: mature,
       promoUseRate: ratio(num(r?.promo_users), customers),
       topCountry: geo?.country == null ? null : String(geo.country),

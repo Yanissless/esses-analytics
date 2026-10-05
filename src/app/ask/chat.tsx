@@ -28,7 +28,7 @@ interface Exchange {
 const SUGGESTIONS = [
   "How did last month compare with the one before?",
   "Which acquisition channel produces the best customers, and how confident can we be?",
-  "What is our churn at the first renewal, holding the plan constant?",
+  "What is our churn before the first renewal, holding the plan constant?",
   "How much of the margin figure is real cost versus estimate?",
 ];
 

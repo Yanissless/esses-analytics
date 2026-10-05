@@ -16,6 +16,9 @@ half-finished — every check passes at this commit.
 | **`DEPLOY.md`** | The go-live walkthrough, step by step, no assumed knowledge. **Has a Mac section at the top.** |
 | **`CLAUDE.md`** | Auto-loaded by Claude Code. The 9 hard rules — each one exists because breaking it caused a real bug. |
 | **`HANDOFF.md`** | The deep archive: ~70KB across 9 sessions, every failed approach with section numbers. Read on demand, never front to back. |
+| **`TEAM-SETUP.md`** | One-time setup + weekly-update instructions for a non-developer running a local copy for feedback (Hugh first, from 4 Sep 2026; written for whoever's next too — Mac-first, Windows covered too). Not for Johnny's deploy — that's `DEPLOY.md`. |
+| **`EXPORT-FOR-HUGH.cmd`** | Sam double-clicks this weekly to package the current working folder (uncommitted changes included, deliberately — see the comment header) plus a fresh DB dump into `handoff-exports/<date>/`, ready to send out. Runs on Sam's Windows machine only — the people receiving the package are the Mac-first audience `TEAM-SETUP.md` is written for. |
+| **`START-APP.command`** | Mac double-click launcher for testers, same job as `START-APP.cmd` on Windows — see its own header comment for the "unidentified developer" workaround. |
 
 > **Naming note:** on Windows, `handoff.md` and `HANDOFF.md` are the *same file*. This
 > file is the handoff; `HANDOFF.md` is the archive it points into. Don't create a

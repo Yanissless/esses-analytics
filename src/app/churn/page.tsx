@@ -7,7 +7,7 @@ import {
   getRenewalCycleChurn,
   type ChurnDimension,
 } from "@/metrics/churn";
-import { Badge, Card, Stat, formatNum, formatUsd } from "../_components/ui";
+import { Badge, Card, InfoTip, Stat, formatNum, formatUsd } from "../_components/ui";
 import { Nav } from "../_components/nav";
 
 export const dynamic = "force-dynamic";
@@ -102,11 +102,11 @@ export default async function ChurnPage({
   const allPlanSubs = plans.reduce((s, p) => s + p.subscriptions, 0);
 
   const worst = cohorts
-    .filter((c) => c.churnByFirstRenewalPct != null && c.matureSubscriptions >= 30)
-    .sort((a, b) => (b.churnByFirstRenewalPct ?? 0) - (a.churnByFirstRenewalPct ?? 0))[0];
+    .filter((c) => c.churnedBeforeFirstRenewalPct != null && c.matureSubscriptions >= 30)
+    .sort((a, b) => (b.churnedBeforeFirstRenewalPct ?? 0) - (a.churnedBeforeFirstRenewalPct ?? 0))[0];
   const best = cohorts
-    .filter((c) => c.churnByFirstRenewalPct != null && c.matureSubscriptions >= 30)
-    .sort((a, b) => (a.churnByFirstRenewalPct ?? 1) - (b.churnByFirstRenewalPct ?? 1))[0];
+    .filter((c) => c.churnedBeforeFirstRenewalPct != null && c.matureSubscriptions >= 30)
+    .sort((a, b) => (a.churnedBeforeFirstRenewalPct ?? 1) - (b.churnedBeforeFirstRenewalPct ?? 1))[0];
 
   const href = (d: ChurnDimension) =>
     `/churn?dim=${d}${params.plan ? `&plan=${encodeURIComponent(params.plan)}` : ""}`;
@@ -154,22 +154,46 @@ export default async function ChurnPage({
           />
           <Stat
             label="Worst cohort at renewal"
-            value={worst ? pct(worst.churnByFirstRenewalPct) : "—"}
+            value={worst ? pct(worst.churnedBeforeFirstRenewalPct) : "—"}
             hint={worst ? `${worst.label} · ${formatNum(worst.matureSubscriptions)} mature` : "no mature cohort yet"}
+            trailing={
+              <InfoTip label="How this is calculated">
+                Of this cohort&rsquo;s <strong>mature</strong> subscriptions — old enough that
+                age ≥ their own plan&rsquo;s billing cycle (3 months quarterly, 12 annual) — the
+                share that cancelled <strong>before</strong> living a full cycle, i.e. before
+                ever being billed a second time. Cohorts with fewer than 30 mature subscriptions
+                are excluded from &ldquo;worst/best&rdquo; so a 2-of-3 fluke can&rsquo;t win.
+                Source: <code>getChurnCohorts</code> in <code>metrics/churn.ts</code>.
+              </InfoTip>
+            }
           />
           <Stat
             label="Best cohort at renewal"
-            value={best ? pct(best.churnByFirstRenewalPct) : "—"}
+            value={best ? pct(best.churnedBeforeFirstRenewalPct) : "—"}
             hint={best ? `${best.label} · ${formatNum(best.matureSubscriptions)} mature` : "no mature cohort yet"}
+            trailing={
+              <InfoTip label="How this is calculated">
+                Same metric as &ldquo;Worst cohort at renewal&rdquo;, lowest value instead of
+                highest — the cohort with the smallest share cancelling before their first
+                renewal, again restricted to cohorts with 30+ mature subscriptions.
+              </InfoTip>
+            }
           />
           <Stat
             label="Spread"
             value={
-              worst && best && worst.churnByFirstRenewalPct != null && best.churnByFirstRenewalPct != null
-                ? `${((worst.churnByFirstRenewalPct - best.churnByFirstRenewalPct) * 100).toFixed(0)}pp`
+              worst && best && worst.churnedBeforeFirstRenewalPct != null && best.churnedBeforeFirstRenewalPct != null
+                ? `${((worst.churnedBeforeFirstRenewalPct - best.churnedBeforeFirstRenewalPct) * 100).toFixed(0)}pp`
                 : "—"
             }
             hint="gap between best and worst — the size of the opportunity"
+            trailing={
+              <InfoTip label="How this is calculated">
+                Worst cohort&rsquo;s churn-before-first-renewal rate minus best cohort&rsquo;s,
+                in percentage points. Not a statistical test — a large spread on two thin
+                cohorts is a lead to check, not a proven difference.
+              </InfoTip>
+            }
           />
         </div>
 
@@ -177,6 +201,21 @@ export default async function ChurnPage({
         <Card
           title="Churn at each renewal"
           subtitle="A renewal is 3 months on one plan and 12 on another, so these are reported per plan. Rate is conditional: of those who reached the previous renewal, the share who did not reach this one."
+          info={
+            <>
+              <strong>Read the columns as a funnel, not as one denominator.</strong> &ldquo;Reached
+              it&rdquo; is subscriptions old enough to have faced this renewal (age ≥ cycle number ×
+              the plan&rsquo;s billing months) — a growing population as more cohorts mature.
+              &ldquo;Lost at it&rdquo; is cancellations in <em>this</em> interval only: survived the
+              previous renewal but not this one, not a running total. &ldquo;Churn at renewal&rdquo;
+              divides that by a <strong>third</strong> number shown nowhere in the table — those who
+              survived the previous renewal — not by &ldquo;Reached it&rdquo;. That is why{" "}
+              <code>lost ÷ reached</code> computed by hand will not match the percentage shown; the
+              app&rsquo;s denominator is stricter. &ldquo;Still alive&rdquo; is cumulative survival
+              since signup. Source: <code>getRenewalCycleChurn</code> in{" "}
+              <code>metrics/churn.ts</code>.
+            </>
+          }
         >
           {testedPlans.length === 0 ? (
             <p className="text-sm text-neutral-500">
@@ -253,7 +292,7 @@ export default async function ChurnPage({
         {/* ---- cohort comparison ---- */}
         <Card
           title="Cohort comparison"
-          subtitle="Compare cohorts on 'churn by first renewal', not raw churn. Raw churn punishes older cohorts purely for having existed longer."
+          subtitle="Compare cohorts on 'churned before first renewal', not raw churn. Raw churn punishes older cohorts purely for having existed longer."
         >
           <div className="mb-4 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -331,11 +370,42 @@ export default async function ChurnPage({
                   <th className="pb-2 font-medium">Cohort</th>
                   <th className="pb-2 text-right font-medium">Subs</th>
                   <th className="pb-2 text-right font-medium">
-                    Churn by 1st renewal
+                    <span className="inline-flex items-center gap-1">
+                      Before 1st renewal
+                      <InfoTip label="How this is calculated" align="right">
+                        Of this cohort&rsquo;s <strong>mature</strong> subscriptions (the &ldquo;Mature&rdquo;
+                        column — old enough that age ≥ their own plan&rsquo;s billing cycle), the share that
+                        cancelled before living a full cycle: cancelled without ever being billed a second
+                        time. Not the same thing as &ldquo;Raw churn&rdquo; beside it — that column includes
+                        cohorts too young to have faced a renewal at all, which mechanically favours older
+                        cohorts. This is the fair, age-adjusted comparison.
+                      </InfoTip>
+                    </span>
                     <span className="ml-1 font-normal normal-case">(compare this)</span>
                   </th>
-                  <th className="pb-2 text-right font-medium">Mature</th>
-                  <th className="pb-2 text-right font-medium">Raw churn</th>
+                  <th className="pb-2 text-right font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      Mature
+                      <InfoTip label="How this is calculated" align="right">
+                        Subscriptions old enough to have faced their first renewal — the denominator
+                        behind &ldquo;Before 1st renewal&rdquo;. 0 means the cohort can&rsquo;t be judged
+                        yet at any confidence; under 30 is marked &ldquo;thin&rdquo; and shouldn&rsquo;t
+                        move a decision on its own.
+                      </InfoTip>
+                    </span>
+                  </th>
+                  <th className="pb-2 text-right font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      Raw churn
+                      <InfoTip label="How this is calculated" align="right">
+                        Cancelled ÷ all subscriptions in the cohort, mature or not — the naive number
+                        everyone asks for first. Punishes older cohorts for having had more time to
+                        churn and rewards young ones that simply haven&rsquo;t been tested yet. Shown
+                        for reference only; &ldquo;Before 1st renewal&rdquo; is the column to trust for
+                        comparing cohorts of different ages.
+                      </InfoTip>
+                    </span>
+                  </th>
                   <th className="pb-2 text-right font-medium">Median life</th>
                   <th className="pb-2 text-right font-medium">LTV / sub</th>
                   <th className="pb-2 text-right font-medium">Avg discount</th>
@@ -362,16 +432,16 @@ export default async function ChurnPage({
                       <td className="py-2 text-right tabular-nums">{formatNum(c.subscriptions)}</td>
                       <td
                         className={`py-2 text-right font-medium tabular-nums ${
-                          c.churnByFirstRenewalPct == null
+                          c.churnedBeforeFirstRenewalPct == null
                             ? "text-neutral-400"
-                            : c.churnByFirstRenewalPct > 0.4
+                            : c.churnedBeforeFirstRenewalPct > 0.4
                               ? "text-red-600 dark:text-red-400"
-                              : c.churnByFirstRenewalPct < 0.2
+                              : c.churnedBeforeFirstRenewalPct < 0.2
                                 ? "text-emerald-600 dark:text-emerald-400"
                                 : "text-amber-600 dark:text-amber-400"
                         }`}
                       >
-                        {pct(c.churnByFirstRenewalPct)}
+                        {pct(c.churnedBeforeFirstRenewalPct)}
                       </td>
                       <td className="py-2 text-right tabular-nums text-neutral-500">
                         {formatNum(c.matureSubscriptions)}

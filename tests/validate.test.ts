@@ -30,6 +30,7 @@ describe("validation registry", () => {
       /content_metrics never exceeds/, // two GA4 queries over mismatched windows
       /both Shopify and Stripe revenue/, // fulfilment orders double-counting
       /silently stopped/, // Shopify's cursor froze for two weeks
+      /abandoned Stripe checkouts/, // checkout flow creates and voids throwaway subscriptions
     ];
 
     for (const pattern of expected) {

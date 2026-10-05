@@ -426,6 +426,10 @@ export async function getSubscriberSeries(
       JOIN stripe_subscriptions s
         ON s.started_at <= ${bucketEnd}
        AND (s.canceled_at IS NULL OR s.canceled_at > ${bucketEnd})
+       -- 'expired' = Stripe's incomplete_expired: first invoice never paid, never a
+       -- real subscriber. See metrics/churn.ts's SUBS_CTE for the full reasoning —
+       -- same fix, same day (23 Sep 2026).
+       AND s.status != 'expired'
       GROUP BY w.wk
     )
     SELECT

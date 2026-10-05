@@ -652,6 +652,49 @@ const CHECKS: Check[] = [
   },
 
   {
+    name: "no abandoned Stripe checkouts in the last 24 hours",
+    guards:
+      "23 Sep 2026: found Stripe subscriptions stuck in incomplete_expired — first invoice " +
+      "never paid, payment never even attempted — then confirmed via Stripe's Events API this " +
+      "is not customer abandonment: a SEPARATE API call voids the invoice and expires the " +
+      "subscription 10-75 seconds after creation, and 55% of the time is followed within " +
+      "minutes (once, 1 second) by a second, successful subscription for the same customer. " +
+      "That's a checkout-flow bug creating throwaway subscription objects, not people walking " +
+      "away. These are already excluded from every subscriber/churn/retention count app-wide " +
+      "(metrics/churn.ts's SUBS_CTE and everywhere it's shared) — this check exists so the " +
+      "underlying flow bug stays visible instead of quietly filtered out of sight.",
+    run: async () => {
+      const r = await one<{ n: number; sample: string | null }>(sql`
+        WITH abandoned AS (
+          SELECT ss.stripe_subscription_id, cu.email, ss.started_at, ss.canceled_at
+            FROM stripe_subscriptions ss
+            JOIN customers cu ON cu.id = ss.customer_id
+           WHERE ss.status = 'expired'
+             AND ss.started_at >= now() - interval '24 hours'
+        )
+        SELECT count(*)::int AS n,
+               string_agg(email || ' (' || round(EXTRACT(EPOCH FROM (canceled_at - started_at))) || 's)', ', '
+                          ORDER BY started_at DESC) AS sample
+          FROM abandoned
+      `);
+      const count = n(r?.n);
+      if (count === 0) {
+        return { severity: "ok", detail: "0 abandoned Stripe checkouts in the last 24 hours" };
+      }
+      return {
+        severity: "error",
+        detail: `${count} abandoned Stripe checkout(s) in the last 24 hours: ${r?.sample}`,
+        remedy:
+          "Not a customer problem — check whichever integration creates and voids these " +
+          "(Craft's Stripe checkout flow is the prime suspect). Pull the two Stripe request " +
+          "IDs on one of these subscriptions (Dashboard → Subscriptions → Events tab) — the " +
+          "create and the void are separate requests, seconds to a couple of minutes apart, " +
+          "which is the thread to pull on to find what's issuing the void.",
+      };
+    },
+  },
+
+  {
     name: "no Instagram follower day implies an impossible jump",
     guards:
       "Splicing two insight chains with different anchors invented a +150-follower day. Meta " +

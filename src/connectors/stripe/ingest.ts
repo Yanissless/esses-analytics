@@ -170,10 +170,32 @@ export async function ingestInvoice(inv: Stripe.Invoice): Promise<void> {
       })
     : null;
 
-  const subscriptionId =
-    typeof i.subscription === "string"
-      ? (i.subscription as string)
-      : ((i.subscription as { id?: string } | undefined)?.id ?? null);
+  // The subscription link moved in a Stripe API upgrade: `invoice.subscription` is
+  // GONE entirely on this account's API version (not null, not deprecated-but-present
+  // — absent from the response) in favour of `invoice.parent.subscription_details.subscription`.
+  // Found 22 Sep 2026 because EVERY row in stripe_invoices had a null
+  // stripe_subscription_id — 795 of 795, not an edge case. Checking the legacy field
+  // first costs nothing and keeps this working if Stripe reintroduces it or an older
+  // API version is ever configured; `parent` is the fallback that actually fires today.
+  type InvoiceParent = {
+    subscription_details?: { subscription?: string | { id?: string } | null } | null;
+  };
+  const legacySubRef = i.subscription as string | { id?: string } | null | undefined;
+  const parentSubRef = (i.parent as InvoiceParent | undefined)?.subscription_details?.subscription;
+  const subRef = legacySubRef ?? parentSubRef;
+  const subscriptionId = typeof subRef === "string" ? subRef : (subRef?.id ?? null);
+
+  // Discount(s) actually redeemed on THIS charge. Needs `discounts.promotion_code`
+  // expanded (see index.ts) or `promotion_code` comes back as a bare ID string, not
+  // the human-facing code. `total_discount_amounts` is real cents off this specific
+  // invoice — truer than the coupon's abstract percent/amount-off terms.
+  type ExpandedDiscount = { promotion_code?: string | { code?: string | null } | null };
+  const discounts = (i.discounts as ExpandedDiscount[] | undefined) ?? [];
+  const discountCodes = discounts
+    .map((d) => (typeof d.promotion_code === "string" ? null : (d.promotion_code?.code ?? null)))
+    .filter((c): c is string => Boolean(c));
+  const totalDiscountAmounts = (i.total_discount_amounts as Array<{ amount: number }> | undefined) ?? [];
+  const discountAmount = totalDiscountAmounts.reduce((sum, d) => sum + (d.amount ?? 0), 0);
 
   const invoiceValues = {
     stripeInvoiceId: inv.id as string,
@@ -188,6 +210,8 @@ export async function ingestInvoice(inv: Stripe.Invoice): Promise<void> {
     totalAmount: inv.total ?? 0,
     amountDueAmount: inv.amount_due ?? 0,
     amountPaidAmount: inv.amount_paid ?? 0,
+    discountCodes: discountCodes.length > 0 ? discountCodes : null,
+    discountAmount,
     invoicedAt: asDate(inv.created),
     periodStart: asDate((firstLine?.period?.start as number | undefined) ?? null),
     periodEnd: asDate((firstLine?.period?.end as number | undefined) ?? null),
