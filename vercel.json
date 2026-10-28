@@ -2,16 +2,20 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/sync",
+      "path": "/api/sync?source=shopify",
       "schedule": "0 6 * * *"
     },
     {
-      "path": "/api/sync?source=skio&full=skio",
-      "schedule": "0 4 * * 0"
+      "path": "/api/sync?source=skio",
+      "schedule": "10 6 * * *"
+    },
+    {
+      "path": "/api/sync?source=stripe,ads,instagram,ga4",
+      "schedule": "20 6 * * *"
     },
     {
       "path": "/api/cron/daily-digest",
-      "schedule": "15 6 * * *"
+      "schedule": "45 6 * * *"
     }
   ]
 }
